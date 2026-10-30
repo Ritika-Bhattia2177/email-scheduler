@@ -1,0 +1,138 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum EmailJobStatus {
+  SCHEDULED
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum EmailEventType {
+  SCHEDULED
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
+  RATE_LIMITED
+  RESCHEDULED
+}
+
+model User {
+  id             String          @id @default(uuid()) @db.Uuid
+  email          String          @unique
+  name           String
+  googleId       String?         @unique
+  avatarUrl      String?
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+  senderAccounts SenderAccount[]
+  emailJobs      EmailJob[]
+  slackConnection SlackConnection?
+
+  @@map("users")
+}
+
+model SenderAccount {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  email       String
+  displayName String
+  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @db.Timestamptz(3)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailJobs   EmailJob[]
+
+  @@unique([userId, email])
+  @@index([userId])
+  @@map("sender_accounts")
+}
+
+model EmailJob {
+  id               String           @id @default(uuid()) @db.Uuid
+  userId           String           @db.Uuid
+  senderAccountId  String           @db.Uuid
+  subject          String
+  bodyHtml         String           @db.Text
+  status           EmailJobStatus   @default(SCHEDULED)
+  scheduledAt      DateTime         @db.Timestamptz(3)
+  minimumDelayMs   Int?
+  hourlyLimit      Int?
+  sentAt           DateTime?        @db.Timestamptz(3)
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
+  idempotencyKey   String           @unique
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderAccount    SenderAccount    @relation(fields: [senderAccountId], references: [id], onDelete: Restrict)
+  recipients       EmailRecipient[]
+  attachments      EmailAttachment[]
+  events            EmailEvent[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([senderAccountId])
+  @@index([userId, status, scheduledAt])
+  @@map("email_jobs")
+}
+
+model EmailRecipient {
+  id        String   @id @default(uuid()) @db.Uuid
+  emailJobId String  @db.Uuid
+  email     String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  emailJob  EmailJob @relation(fields: [emailJobId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([emailJobId])
+  @@map("email_recipients")
+}
+
+model EmailAttachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  emailJobId  String   @db.Uuid
+  fileName    String
+  mimeType    String
+  fileSize    Int
+  storagePath String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  emailJob    EmailJob @relation(fields: [emailJobId], references: [id], onDelete: Cascade)
+
+  @@index([emailJobId])
+  @@map("email_attachments")
+}
+
+model EmailEvent {
+  id        String          @id @default(uuid()) @db.Uuid
+  emailJobId String         @db.Uuid
+  type      EmailEventType
+  message   String?         @db.Text
+  createdAt DateTime        @default(now()) @db.Timestamptz(3)
+  emailJob  EmailJob        @relation(fields: [emailJobId], references: [id], onDelete: Cascade)
+
+  @@index([emailJobId])
+  @@map("email_events")
+}
+
+model SlackConnection {
+  id                    String   @id @default(uuid()) @db.Uuid
+  userId                String   @unique @db.Uuid
+  teamId                String?  @db.VarChar(64)
+  teamName              String?
+  slackUserId           String?  @db.VarChar(64)
+  encryptedAccessToken  String   @db.Text
+  connectedAt           DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime @updatedAt @db.Timestamptz(3)
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@map("slack_connections")
+}
