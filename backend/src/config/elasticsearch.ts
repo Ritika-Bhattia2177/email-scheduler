@@ -3,12 +3,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { env } from './env'
 
-const caCertificatePath = resolve(__dirname, '../../', env.ELASTICSEARCH_CA_CERT_PATH)
-let caCertificate: Buffer
-try {
-  caCertificate = readFileSync(caCertificatePath)
-} catch {
-  throw new Error('Elasticsearch CA certificate could not be read; check ELASTICSEARCH_CA_CERT_PATH relative to the backend project directory')
+let caCertificate: Buffer | undefined
+if (env.ELASTICSEARCH_CA_CERT_PATH) {
+  const caCertificatePath = resolve(__dirname, '../../', env.ELASTICSEARCH_CA_CERT_PATH)
+  try {
+    caCertificate = readFileSync(caCertificatePath)
+  } catch {
+    throw new Error('Elasticsearch CA certificate could not be read; check ELASTICSEARCH_CA_CERT_PATH relative to the backend project directory')
+  }
 }
 
 const auth = env.ELASTICSEARCH_API_KEY
@@ -22,7 +24,7 @@ const auth = env.ELASTICSEARCH_API_KEY
 
 export const elasticsearchClient = new Client({
   node: env.ELASTICSEARCH_NODE,
-  tls: { ca: caCertificate },
+  ...(caCertificate ? { tls: { ca: caCertificate } } : {}),
   requestTimeout: 10_000,
   maxRetries: 0,
   ...(auth ? { auth } : {}),
