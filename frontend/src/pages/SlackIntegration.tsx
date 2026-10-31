@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, ExternalLink, LoaderCircle, RefreshCw, Slack, Unplug } from 'lucide-react'
 import Button from '../components/ui/Button'
-import { getApiErrorMessage, getData, postData } from '../services/api'
+import { api, getApiErrorMessage, getData, postData } from '../services/api'
 import { useSearchParams } from 'react-router-dom'
 
 interface SlackConnectionStatus {
@@ -12,7 +12,7 @@ interface SlackConnectionStatus {
   connectedAt?: string
 }
 
-const SLACK_OAUTH_START_URL = 'http://localhost:5000/api/slack/oauth/start'
+const SLACK_OAUTH_START_URL = `${api.defaults.baseURL}/slack/oauth/start`
 
 export default function SlackIntegration() {
   const [searchParams] = useSearchParams()
