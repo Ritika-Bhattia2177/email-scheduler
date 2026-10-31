@@ -6,7 +6,7 @@ import type { EmailQueueJobData, EmailQueueJobResult } from '../queues/queueType
 import { env } from '../config/env'
 import { EmailDeliveryError } from '../services/email.service'
 import { deliverEmailJob } from '../services/emailDeliveryService'
-import { commitEmailSend, releaseEmailSend, reserveEmailSend } from '../services/emailRateLimiter'
+import { commitEmailSend, refreshEmailSendReservation, releaseEmailSend, reserveEmailSend, RESERVATION_HEARTBEAT_MS } from '../services/emailRateLimiter'
 import { syncEmailSearchDocument } from '../services/emailSearchService'
 import { notifyRateLimit } from '../services/slack.service'
 import { redactSecrets } from '../utils/redactSecrets'
@@ -111,6 +111,13 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
         emailJobId: emailJob.id,
         senderAccountId: emailJob.senderAccountId,
         reasons: rateLimit.reasons,
+        minimumDelayMs,
+        lastSuccessfulSend: rateLimit.previousAttemptAt,
+        pendingReservationAt: rateLimit.pendingReservationAt === null ? null : new Date(rateLimit.pendingReservationAt).toISOString(),
+        pendingReservationAgeMs: rateLimit.pendingReservationAgeMs,
+        retryAfterMs: rateLimit.retryAfterMs,
+        retryAt: nextScheduledAt.toISOString(),
+        recoveredReservations: rateLimit.recoveredReservations,
         nextScheduledAt: nextScheduledAt.toISOString(),
       }))
       throw new DelayedError()
@@ -144,13 +151,33 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
     await syncEmailSearchDocument(emailJob.id)
 
     let delivery: Awaited<ReturnType<typeof deliverEmailJob>>
+    const reservationHeartbeat = setInterval(() => {
+      void refreshEmailSendReservation(rateLimit.reservationId!, emailJob.senderAccountId).then(refreshed => {
+        if (!refreshed) {
+          console.warn(JSON.stringify({
+            level: 'warn',
+            event: 'email_rate_limit_reservation_lease_missing',
+            emailJobId: emailJob.id,
+          }))
+        }
+      }).catch(error => {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          event: 'email_rate_limit_reservation_heartbeat_failed',
+          emailJobId: emailJob.id,
+          message: safeErrorMessage(error),
+        }))
+      })
+    }, RESERVATION_HEARTBEAT_MS)
     try {
       delivery = await deliverEmailJob(emailJob.id)
     } catch (error) {
+      clearInterval(reservationHeartbeat)
       await safelyReleaseReservation(rateLimit.reservationId!, emailJob.senderAccountId, emailJob.id)
       await recordDeliveryFailure(emailJob.id, job, error)
       throw error
     }
+    clearInterval(reservationHeartbeat)
 
     // Count against rolling hourly quotas only after SMTP accepts the message.
     try {

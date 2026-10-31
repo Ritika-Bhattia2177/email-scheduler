@@ -3,6 +3,8 @@ import { redisConnection } from '../config/redis'
 import { env } from '../config/env'
 
 const WINDOW_MS = 60 * 60 * 1000
+const RESERVATION_LEASE_MS = 2 * 60 * 1000
+const RESERVATION_HEARTBEAT_MS = 30 * 1000
 
 // A slot is reserved atomically before SMTP so concurrent workers cannot use
 // the same capacity. Only commitEmailSend adds an item to the sent counters
@@ -15,8 +17,22 @@ local globalLimit = tonumber(ARGV[2])
 local senderLimit = tonumber(ARGV[3])
 local minimumDelay = tonumber(ARGV[4])
 local member = ARGV[5]
+local reservationLeaseMs = tonumber(ARGV[6])
 
 for i = 1, 4 do redis.call('ZREMRANGEBYSCORE', KEYS[i], '-inf', now - windowMs) end
+local recoveredReservations = 0
+local pendingMembers = redis.call('ZRANGE', KEYS[3], 0, -1, 'WITHSCORES')
+for index = 1, #pendingMembers, 2 do
+  local pendingMember = pendingMembers[index]
+  local pendingTimestamp = tonumber(pendingMembers[index + 1])
+  local leaseKey = '{email-rate}:lease:' .. pendingMember
+  if redis.call('EXISTS', leaseKey) == 0 and now - pendingTimestamp >= reservationLeaseMs then
+    redis.call('ZREM', KEYS[3], pendingMember)
+    redis.call('ZREM', KEYS[4], pendingMember)
+    redis.call('HDEL', KEYS[6], pendingMember)
+    recoveredReservations = recoveredReservations + 1
+  end
+end
 local globalSent = redis.call('ZCARD', KEYS[1])
 local senderSent = redis.call('ZCARD', KEYS[2])
 local globalPending = redis.call('ZCARD', KEYS[3])
@@ -55,17 +71,22 @@ if globalBlocked or senderBlocked or delayBlocked then
       waitMs = math.max(waitMs, tonumber(pendingSend[2]) + math.max(minimumDelay, pendingDelay) - now)
     end
   end
-  waitMs = math.max(1000, math.ceil(waitMs))
-  return {0, waitMs, globalBlocked and 1 or 0, senderBlocked and 1 or 0, delayBlocked and 1 or 0, now + waitMs, lastSuccessfulSend, globalCount, senderCount, now}
+  -- If an SMTP reservation is still active after its predicted slot,
+  -- retry after the configured delay rather than creating a one-second
+  -- rescheduling loop while that reservation is being completed.
+  waitMs = math.max(1000, minimumDelay, pendingDelay, math.ceil(waitMs))
+  local pendingTimestamp = pendingSend[2] and tonumber(pendingSend[2]) or 0
+  return {0, waitMs, globalBlocked and 1 or 0, senderBlocked and 1 or 0, delayBlocked and 1 or 0, now + waitMs, lastSuccessfulSend, globalCount, senderCount, now, pendingTimestamp, pendingTimestamp > 0 and now - pendingTimestamp or 0, recoveredReservations}
 end
 
 redis.call('ZADD', KEYS[3], now, member)
 redis.call('ZADD', KEYS[4], now, member)
 redis.call('HSET', KEYS[6], member, minimumDelay)
+redis.call('SET', KEYS[8], '1', 'PX', reservationLeaseMs)
 redis.call('EXPIRE', KEYS[3], 7200)
 redis.call('EXPIRE', KEYS[4], 7200)
 redis.call('EXPIRE', KEYS[6], 7200)
-return {1, 0, 0, 0, 0, now, lastSuccessfulSend, globalCount, senderCount, now}
+return {1, 0, 0, 0, 0, now, lastSuccessfulSend, globalCount, senderCount, now, 0, 0, recoveredReservations}
 `
 
 const commitScript = `
@@ -74,6 +95,7 @@ local now = (tonumber(time[1]) * 1000) + math.floor(tonumber(time[2]) / 1000)
 local globalRemoved = redis.call('ZREM', KEYS[3], ARGV[1])
 local senderRemoved = redis.call('ZREM', KEYS[4], ARGV[1])
 redis.call('HDEL', KEYS[6], ARGV[1])
+redis.call('DEL', KEYS[8])
 if globalRemoved == 1 and senderRemoved == 1 then
   redis.call('ZADD', KEYS[1], now, ARGV[1])
   redis.call('ZADD', KEYS[2], now, ARGV[1])
@@ -90,6 +112,7 @@ const releaseScript = `
 local globalRemoved = redis.call('ZREM', KEYS[1], ARGV[1])
 local senderRemoved = redis.call('ZREM', KEYS[2], ARGV[1])
 redis.call('HDEL', KEYS[3], ARGV[1])
+redis.call('DEL', KEYS[4])
 return globalRemoved == 1 and senderRemoved == 1 and 1 or 0
 `
 
@@ -105,10 +128,13 @@ export interface EmailRateLimitDecision {
   globalLimit: number
   senderLimit: number
   minimumDelayMs: number
+  pendingReservationAt: number | null
+  pendingReservationAgeMs: number
+  recoveredReservations: number
   reasons: Array<'global-hourly-limit' | 'sender-hourly-limit' | 'minimum-delay'>
 }
 
-function keys(senderAccountId: string): [string, string, string, string, string, string, string] {
+function keys(senderAccountId: string, reservationId?: string): [string, string, string, string, string, string, string, string] {
   // Shared hash tag keeps every key in one Redis Cluster slot for Lua atomicity.
   return [
     '{email-rate}:global:sent',
@@ -118,6 +144,7 @@ function keys(senderAccountId: string): [string, string, string, string, string,
     '{email-rate}:minimum-delay',
     '{email-rate}:global:pending-delays',
     '{email-rate}:minimum-delay-ms',
+    `{email-rate}:lease:${reservationId ?? 'unused'}`,
   ]
 }
 
@@ -134,20 +161,21 @@ export async function reserveEmailSend(
   const senderLimit = Math.min(requestedSenderLimit, env.MAX_EMAILS_PER_SENDER_PER_HOUR)
   const rawDecision: unknown = await redisConnection.eval(
     reserveScript,
-    7,
+    8,
     ...keys(senderAccountId),
     WINDOW_MS,
     globalLimit,
     senderLimit,
     minimumDelayMs,
     reservationId,
+    RESERVATION_LEASE_MS,
   )
 
-  if (!Array.isArray(rawDecision) || rawDecision.length !== 10 || rawDecision.some(value => typeof value !== 'number')) {
+  if (!Array.isArray(rawDecision) || rawDecision.length !== 13 || rawDecision.some(value => typeof value !== 'number')) {
     throw new Error('Redis returned an invalid email rate-limit decision')
   }
 
-  const [allowed, retryAfterMs, globalBlocked, senderBlocked, delayBlocked, retryAt, previousAttemptAt, globalCount, senderCount, checkedAt] = rawDecision as number[]
+  const [allowed, retryAfterMs, globalBlocked, senderBlocked, delayBlocked, retryAt, previousAttemptAt, globalCount, senderCount, checkedAt, pendingReservationAt, pendingReservationAgeMs, recoveredReservations] = rawDecision as number[]
   const reasons: EmailRateLimitDecision['reasons'] = []
   if (globalBlocked === 1) reasons.push('global-hourly-limit')
   if (senderBlocked === 1) reasons.push('sender-hourly-limit')
@@ -164,17 +192,27 @@ export async function reserveEmailSend(
     globalLimit,
     senderLimit,
     minimumDelayMs,
+    pendingReservationAt: pendingReservationAt > 0 ? pendingReservationAt : null,
+    pendingReservationAgeMs,
+    recoveredReservations,
     reasons,
   }
 }
 
 export async function commitEmailSend(reservationId: string, senderAccountId: string, minimumDelayMs = env.EMAIL_DELAY_MS): Promise<void> {
-  const keySet = keys(senderAccountId)
-  const committed: unknown = await redisConnection.eval(commitScript, 7, ...keySet, reservationId, minimumDelayMs)
+  const keySet = keys(senderAccountId, reservationId)
+  const committed: unknown = await redisConnection.eval(commitScript, 8, ...keySet, reservationId, minimumDelayMs)
   if (committed !== 1) throw new Error('Email rate-limit reservation expired before SMTP success was recorded')
 }
 
 export async function releaseEmailSend(reservationId: string, senderAccountId: string): Promise<void> {
-  const keySet = keys(senderAccountId)
-  await redisConnection.eval(releaseScript, 3, keySet[2], keySet[3], keySet[5], reservationId)
+  const keySet = keys(senderAccountId, reservationId)
+  await redisConnection.eval(releaseScript, 4, keySet[2], keySet[3], keySet[5], keySet[7], reservationId)
 }
+
+export async function refreshEmailSendReservation(reservationId: string, senderAccountId: string): Promise<boolean> {
+  const leaseKey = keys(senderAccountId, reservationId)[7]
+  return (await redisConnection.pexpire(leaseKey, RESERVATION_LEASE_MS)) === 1
+}
+
+export { RESERVATION_HEARTBEAT_MS }
