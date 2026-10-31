@@ -1,7 +1,8 @@
 import axios, { isAxiosError } from 'axios'
 
-const configuredBaseUrl = import.meta.env.VITE_API_URL?.trim()
-  || (import.meta.env.PROD ? '/api' : 'http://localhost:5000/api')
+const configuredBaseUrl = import.meta.env.PROD
+  ? '/api'
+  : import.meta.env.VITE_API_URL?.trim() || 'http://localhost:5000/api'
 
 export const api = axios.create({
   baseURL: configuredBaseUrl.replace(/\/$/, ''),

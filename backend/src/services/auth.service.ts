@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { OAuth2Client } from 'google-auth-library'
+import { OAuth2Client, type Credentials } from 'google-auth-library'
 import { Prisma } from '../generated/prisma/client'
 import { prisma } from '../config/database'
 import { env } from '../config/env'
@@ -89,18 +89,69 @@ export async function authenticateGoogleCode(code: string, expectedNonce: string
   const clientSecret = requiredSetting(env.GOOGLE_CLIENT_SECRET, 'GOOGLE_CLIENT_SECRET')
   try {
     const oauthClient = new OAuth2Client(clientId, clientSecret, env.GOOGLE_REDIRECT_URI)
-    const { tokens } = await oauthClient.getToken(code)
-    if (!tokens.id_token) throw new AuthServiceError('Google did not return a verified identity token.', 401)
-    const ticket = await oauthClient.verifyIdToken({ idToken: tokens.id_token, audience: clientId })
-    const claims = ticket.getPayload()
-    if (!claims || claims.nonce !== expectedNonce || !isGoogleProfile(claims)) {
+    let tokens: Credentials
+    try {
+      ({ tokens } = await oauthClient.getToken(code))
+    } catch (error) {
+      logGoogleOAuthFailure('token_exchange', safeGoogleOAuthErrorCode(error))
+      throw new AuthServiceError('Google sign-in could not be completed. Please try again.', 502)
+    }
+    if (!tokens.id_token) {
+      logGoogleOAuthFailure('identity_token', 'id_token_missing')
+      throw new AuthServiceError('Google did not return a verified identity token.', 401)
+    }
+    let ticket
+    try {
+      ticket = await oauthClient.verifyIdToken({ idToken: tokens.id_token, audience: clientId })
+    } catch {
+      logGoogleOAuthFailure('identity_verification', 'id_token_invalid')
       throw new AuthServiceError('Google did not return a verified email profile.', 401)
     }
-    return await findOrCreateGoogleUser(claims)
+    const claims = ticket.getPayload()
+    if (!claims || claims.nonce !== expectedNonce) {
+      logGoogleOAuthFailure('identity_validation', 'nonce_mismatch')
+      throw new AuthServiceError('Google did not return a verified email profile.', 401)
+    }
+    if (!isGoogleProfile(claims)) {
+      logGoogleOAuthFailure('identity_validation', 'profile_claims_invalid')
+      throw new AuthServiceError('Google did not return a verified email profile.', 401)
+    }
+    try {
+      return await findOrCreateGoogleUser(claims)
+    } catch (error) {
+      const reason = error instanceof AuthServiceError && error.statusCode === 409
+        ? 'account_conflict'
+        : prismaFailureCode(error) ?? 'user_persistence_failed'
+      logGoogleOAuthFailure('user_persistence', reason)
+      throw error
+    }
   } catch (error) {
     if (error instanceof AuthServiceError) throw error
     throw new AuthServiceError('Google sign-in could not be completed. Please try again.', 502)
   }
+}
+
+function logGoogleOAuthFailure(stage: string, reason: string): void {
+  console.warn(JSON.stringify({ level: 'warn', event: 'google_oauth_authentication_failed', stage, reason }))
+}
+
+function safeGoogleOAuthErrorCode(error: unknown): string {
+  if (!isRecord(error)) return 'provider_request_failed'
+  const response = isRecord(error.response) ? error.response : undefined
+  const data = response && isRecord(response.data) ? response.data : undefined
+  const providerCode = typeof data?.error === 'string'
+    ? data.error
+    : typeof error.code === 'string' ? error.code : undefined
+  const allowedCodes = new Set([
+    'invalid_grant', 'redirect_uri_mismatch', 'invalid_client', 'unauthorized_client',
+    'invalid_request', 'invalid_scope', 'access_denied', 'temporarily_unavailable',
+  ])
+  return providerCode && allowedCodes.has(providerCode) ? providerCode : 'provider_request_failed'
+}
+
+function prismaFailureCode(error: unknown): string | undefined {
+  if (!isRecord(error) || typeof error.code !== 'string' || !/^P\d{4}$/.test(error.code)) return undefined
+  return error.code
 }
 
 async function findOrCreateGoogleUser(profile: GoogleProfile): Promise<{ id: string }> {

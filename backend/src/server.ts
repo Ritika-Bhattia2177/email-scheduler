@@ -9,7 +9,7 @@ import { initializeEmailIndexSafely } from './services/emailSearchService'
 
 void initializeEmailIndexSafely()
 
-const server = app.listen(env.PORT, () => {
+const server = app.listen(env.PORT, '0.0.0.0', () => {
   console.info(`ReachInbox backend listening on port ${env.PORT}`)
 })
 
