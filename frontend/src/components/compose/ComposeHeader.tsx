@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronRight, Clock3, Paperclip } from 'lucide-react'
+import { ArrowLeft, Clock3, Paperclip } from 'lucide-react'
 import { useState } from 'react'
 
 export interface ComposeHeaderProps {
@@ -10,14 +10,13 @@ export interface ComposeHeaderProps {
   onScheduleCancel: () => void
   submitting: boolean
   submittingMode: 'send' | 'schedule' | null
-  isScheduled: boolean
   startDate: string
   startTime: string
   onStartDateChange: (value: string) => void
   onStartTimeChange: (value: string) => void
 }
 
-export default function ComposeHeader({ onBack, onAttach, attachmentCount, onSend, onScheduleConfirm, onScheduleCancel, submitting, submittingMode, isScheduled, startDate, startTime, onStartDateChange, onStartTimeChange }: ComposeHeaderProps) {
+export default function ComposeHeader({ onBack, onAttach, attachmentCount, onSend, onScheduleConfirm, onScheduleCancel, submitting, submittingMode, startDate, startTime, onStartDateChange, onStartTimeChange }: ComposeHeaderProps) {
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
@@ -35,7 +34,7 @@ export default function ComposeHeader({ onBack, onAttach, attachmentCount, onSen
           {attachmentCount > 0 && <span className="compose-attachment-count" aria-hidden="true">{attachmentCount}</span>}
         </button>
         <div className="compose-schedule-wrap">
-          <button className="compose-icon-button" type="button" disabled={submitting} aria-expanded={scheduleOpen} aria-label="Schedule email" title="Schedule email" onClick={() => setScheduleOpen(value => !value)}><Clock3 size={18} /></button>
+          <button className="compose-later-button" type="button" disabled={submitting} aria-expanded={scheduleOpen} aria-label="Send later" onClick={() => setScheduleOpen(value => !value)}><Clock3 size={15} /><span>Send Later</span></button>
           {scheduleOpen && <div className="schedule-popover" role="dialog" aria-label="Send later">
             <strong>Send Later</strong>
             <label className="schedule-popover-date-label" htmlFor="schedule-date">Pick date &amp; time</label>
@@ -49,7 +48,7 @@ export default function ComposeHeader({ onBack, onAttach, attachmentCount, onSen
             </div>
             <div className="schedule-popover-actions">
               <button type="button" className="schedule-cancel" onClick={() => { onScheduleCancel(); setScheduleOpen(false) }}>Cancel</button>
-              <button type="button" className="schedule-done" onClick={() => { if (onScheduleConfirm()) setScheduleOpen(false) }} disabled={submitting}>{submittingMode === 'schedule' ? 'Scheduling…' : <>Done <ChevronRight size={11} /></>}</button>
+              <button type="button" className="schedule-done" onClick={() => { if (onScheduleConfirm()) setScheduleOpen(false) }} disabled={submitting}>{submittingMode === 'schedule' ? 'Scheduling…' : 'Schedule email'}</button>
             </div>
           </div>}
         </div>
@@ -64,7 +63,7 @@ export default function ComposeHeader({ onBack, onAttach, attachmentCount, onSen
             onSend()
           }}
         >
-          {submittingMode === 'send' ? 'Sending…' : submittingMode === 'schedule' ? 'Scheduling…' : isScheduled ? 'Schedule' : 'Send'}
+          {submittingMode === 'send' ? 'Sending…' : submittingMode === 'schedule' ? 'Scheduling…' : 'Send Now'}
         </button>
       </div>
     </header>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { getAuthenticatedUser, getGoogleSignInUrl } from '../auth'
+import Logo from '../components/common/Logo'
 
 const hasDevelopmentUser = Boolean(import.meta.env.DEV && import.meta.env.VITE_DEV_USER_ID?.trim())
 
@@ -29,6 +30,7 @@ export default function Login() {
   return (
     <main className="login-page grid min-h-screen place-items-center bg-white">
       <section className="login-card w-full max-w-sm" aria-labelledby="login-heading">
+        <div className="login-brand"><Logo /><span>ReachInbox</span></div>
         <h1 id="login-heading" className="text-xl font-semibold">Login</h1>
         {oauthError && <p className="login-description" role="alert">Google sign-in could not be completed. Please try again.</p>}
         <button

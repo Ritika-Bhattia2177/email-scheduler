@@ -860,3 +860,56 @@ button { cursor: pointer; }
   .compose-header-actions > .compose-submit-button { width: 68px; min-width: 68px; min-height: 26px; height: 26px; padding: 0 8px; font-size: 9px; }
 }
 
+/* Final visual alignment for the focused mail-client layout. */
+.login-card .button-google {
+  border-color: #dfe5e0;
+  color: #303833;
+  background: #fff;
+}
+.login-card .button-google:hover:not(:disabled) { border-color: #cbd5ce; background: #f8faf8; }
+.login-brand { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 18px; color: #28312b; font-size: 15px; font-weight: 650; }
+.login-brand .brand-mark { width: 26px; height: 26px; }
+.login-brand .brand-mark > span { font-size: 14px; }
+.mailbox-heading { display: flex; min-height: 82px; align-items: center; justify-content: space-between; padding: 12px 22px 14px; border-bottom: 1px solid #edf0ed; }
+.mailbox-heading > div > span { color: #89928c; font-size: 10px; font-weight: 600; letter-spacing: .08em; }
+.mailbox-heading h1 { margin: 3px 0 2px; color: #252c27; font-size: 18px; font-weight: 600; line-height: 1.35; }
+.mailbox-heading p { margin: 0; color: #7b857e; font-size: 12px; }
+.compose-header-actions .compose-later-button {
+  display: inline-flex; min-height: 36px; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 11px; border: 1px solid #dfe5e0; border-radius: 6px; color: #48534b;
+  background: #fff; font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.compose-header-actions .compose-later-button:hover:not(:disabled) { border-color: #b9c7bd; background: #f8faf8; }
+.compose-header-actions .compose-later-button:focus-visible,
+.upload-list-remove:focus-visible { outline: 2px solid #00a651; outline-offset: 2px; }
+.compose-header-actions .compose-later-button:disabled { cursor: wait; opacity: .65; }
+.compose-header-actions > .compose-submit-button { width: auto; min-width: 92px; min-height: 36px; height: 36px; border-radius: 6px; color: #fff; background: #00a651; font-size: 12px; font-weight: 600; }
+.compose-header-actions > .compose-submit-button:hover:not(:disabled) { color: #fff; background: #008f46; }
+.schedule-popover { width: min(300px, calc(100vw - 24px)); padding: 15px; border-color: #e1e7e2; border-radius: 8px; box-shadow: 0 8px 24px rgb(24 38 29 / 12%); }
+.schedule-popover input { min-height: 36px; border: 1px solid #dfe5e0; border-radius: 5px; font-size: 13px; }
+.schedule-popover-actions .schedule-done { min-height: 34px; padding: 0 12px; border-radius: 5px; background: #00a651; font-size: 12px; }
+.upload-list-remove { display: inline-flex; min-height: 26px; align-items: center; gap: 4px; padding: 0 6px; border: 0; border-radius: 4px; color: #667168; background: transparent; font-size: 11px; }
+.upload-list-remove:hover { color: #a33f39; background: #fff5f3; }
+.email-row { min-width: 0; }
+.email-row > * { min-width: 0; }
+.compose-header { min-height: 62px; }
+.compose-form input:focus-visible, .schedule-popover input:focus-visible { outline: 2px solid rgb(0 166 81 / 35%); outline-offset: 1px; }
+
+@media (max-width: 600px) {
+  .mailbox-heading { min-height: 72px; padding: 10px 14px 12px; }
+  .mailbox-heading h1 { font-size: 16px; }
+  .mailbox-heading p { font-size: 11px; }
+  .compose-header-actions .compose-later-button { min-height: 34px; gap: 4px; padding: 0 7px; font-size: 11px; }
+  .compose-header-actions .compose-later-button svg { width: 14px; height: 14px; }
+  .compose-header-actions > .compose-submit-button { min-width: 78px; min-height: 34px; height: 34px; padding: 0 8px; font-size: 11px; }
+  .upload-list-remove { font-size: 10px; }
+}
+
+@media (max-width: 360px) {
+  .compose-header-title h1 { font-size: 14px; }
+  .compose-header-actions { gap: 4px; }
+  .compose-header-actions .compose-attach-button { width: 32px; }
+  .compose-header-actions .compose-later-button { padding: 0 5px; }
+  .compose-header-actions > .compose-submit-button { min-width: 70px; }
+}
+

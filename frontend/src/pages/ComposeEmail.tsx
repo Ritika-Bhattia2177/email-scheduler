@@ -133,6 +133,11 @@ export default function ComposeEmail() {
     setRecipients(current => current.filter(recipient => recipient.email.toLowerCase() !== email.toLowerCase()))
   }
 
+  function removeUploadedRecipients(emails: string[]) {
+    const uploaded = new Set(emails.map(email => email.trim().toLowerCase()))
+    setRecipients(current => current.filter(recipient => !uploaded.has(recipient.email.trim().toLowerCase())))
+  }
+
   function addAttachments(files: File[]) {
     let error = ''
     const validFiles: File[] = []
@@ -186,7 +191,8 @@ export default function ComposeEmail() {
       return false
     }
     setScheduledAt(selectedDateTime.toISOString())
-    setFeedback({ type: 'success', message: `Scheduled for ${formatLocalDate(selectedDateTime.toISOString())}. Click Schedule to queue this email.` })
+    setFeedback({ type: 'success', message: `Scheduling for ${formatLocalDate(selectedDateTime.toISOString())}…` })
+    void submitEmail('schedule', undefined, selectedDateTime.toISOString())
     return true
   }
 
@@ -197,10 +203,10 @@ export default function ComposeEmail() {
   }
 
   function sendEmail(event?: FormEvent<HTMLFormElement>) {
-    void submitEmail(hasValidScheduledTime ? 'schedule' : 'send', event)
+    void submitEmail('send', event)
   }
 
-  async function submitEmail(mode: 'send' | 'schedule', event?: FormEvent<HTMLFormElement>) {
+  async function submitEmail(mode: 'send' | 'schedule', event?: FormEvent<HTMLFormElement>, scheduleOverride?: string) {
     event?.preventDefault()
     if (inFlightRef.current) return
     if (attachmentError) {
@@ -213,7 +219,8 @@ export default function ComposeEmail() {
     const invalidRecipient = !recipientCommit.valid || normalizedRecipients.some(email => !isValidRecipientEmail(email))
     const hasBody = hasMeaningfulBodyContent(body)
     const senderExists = selectedSender !== null && senders.some(sender => sender.id === selectedSender.id)
-    const startDateTime = mode === 'schedule' && scheduledAt ? new Date(scheduledAt) : null
+    const effectiveScheduledAt = scheduleOverride ?? scheduledAt
+    const startDateTime = mode === 'schedule' && effectiveScheduledAt ? new Date(effectiveScheduledAt) : null
     const delayMultiplier = delayUnit === 'seconds' ? 1_000 : delayUnit === 'minutes' ? 60_000 : 3_600_000
     const minimumDelayMs = delayValue * delayMultiplier
     const limitsAreValid = Number.isSafeInteger(minimumDelayMs)
@@ -297,7 +304,6 @@ export default function ComposeEmail() {
         onScheduleCancel={cancelScheduleSelection}
         submitting={submitting}
         submittingMode={submittingMode}
-      isScheduled={hasValidScheduledTime}
         startDate={startDate}
         startTime={startTime}
         onStartDateChange={value => { setStartDate(value); setScheduledAt(null); setFeedback(null) }}
@@ -337,7 +343,7 @@ export default function ComposeEmail() {
           <div className="compose-to-content">
             <RecipientInput ref={recipientInputRef} recipients={recipients} onRecipientsChange={setRecipients} onRemoveRecipient={removeRecipient} />
             <div className="compose-to-tools">
-              <UploadList onFileUpload={addRecipientsFromList} />
+              <UploadList onFileUpload={addRecipientsFromList} onRemoveUpload={removeUploadedRecipients} />
               {recipients.length > 0 && <span className="compose-recipient-count">{recipients.length} {recipients.length === 1 ? 'recipient' : 'recipients'}</span>}
             </div>
           </div>

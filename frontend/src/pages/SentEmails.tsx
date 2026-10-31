@@ -10,6 +10,9 @@ export default function SentEmails() {
 
   return (
     <section className="sent-page">
+      <header className="mailbox-heading">
+        <div><span>MAILBOX</span><h1>Sent</h1><p>Successfully delivered emails</p></div>
+      </header>
       <EmailList
         emails={emails}
         loading={loading}
