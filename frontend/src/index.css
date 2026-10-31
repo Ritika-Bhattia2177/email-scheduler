@@ -27,8 +27,8 @@ button { cursor: pointer; }
   background: #fff;
 }
 .login-card {
-  width: min(100%, 400px);
-  padding: 22px 22px 20px;
+  width: min(100%, 248px);
+  padding: 26px 28px 25px;
   border: 1px solid #f0f2f0;
   border-radius: 5px;
   background: #fff;
@@ -170,12 +170,49 @@ button { cursor: pointer; }
 .dashboard-search > button { display: grid; flex: none; place-items: center; padding: 0; border: 0; color: #89918b; background: transparent; }
 .dashboard-header-action { display: inline-grid; width: 13px; height: 20px; flex: none; place-items: center; padding: 0; border: 0; color: #99a19b; background: transparent; }
 .dashboard-header-action:hover { color: #4e6756; }
+.dashboard-filter-wrap { position: relative; }
+.dashboard-header-action.is-active { color: #16874d; }
+.dashboard-filter-menu {
+  position: absolute;
+  z-index: 6;
+  top: 27px;
+  right: -5px;
+  display: grid;
+  width: 116px;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid #e4e9e5;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 5px 16px rgb(24 38 29 / 10%);
+}
+.dashboard-filter-menu button {
+  min-height: 25px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 3px;
+  color: #657069;
+  background: transparent;
+  font-size: 9px;
+  text-align: left;
+}
+.dashboard-filter-menu button:hover,
+.dashboard-filter-menu button.is-selected { color: #236d43; background: #edf8f1; }
 .dashboard-status-filter { max-width: 112px; height: 23px; padding: 0 5px; border: 1px solid #e9ece9; border-radius: 4px; color: #68716b; background: #fff; font-size: 9px; }
 .dashboard-shell :is(button, a, input):focus-visible { outline: 2px solid rgb(0 166 81 / 32%); outline-offset: 1px; }
 .dashboard-shell .dashboard-search input:focus-visible { outline: 0; outline-offset: 0; box-shadow: none; }
 .mobile-menu { display: none; width: 30px; height: 30px; flex: none; place-items: center; padding: 0; border: 0; border-radius: 4px; color: #69716b; background: transparent; }
 .dashboard-content { width: min(1120px, 100%); margin: 0 auto; padding: 31px 27px 48px; }
 .dashboard-content-mailbox { width: 100%; margin: 0; padding: 0 0 48px; }
+.dashboard-toast {
+  margin: 9px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid #cfe9d8;
+  border-radius: 4px;
+  color: #236d43;
+  background: #f1fbf4;
+  font-size: 10px;
+}
 .scheduled-heading { display: flex; align-items: flex-end; justify-content: space-between; padding-bottom: 20px; }
 .section-eyebrow { margin: 0 0 6px; color: #89918b; font-size: 9px; font-weight: 620; letter-spacing: 1px; }
 .scheduled-heading h1 { margin: 0; color: #282e2a; font-size: 18px; font-weight: 600; letter-spacing: -.3px; line-height: 1.25; }
@@ -861,12 +898,26 @@ button { cursor: pointer; }
 }
 
 /* Final visual alignment for the focused mail-client layout. */
+.login-card {
+  width: min(100%, 248px);
+  padding: 26px 28px 25px;
+  border-color: #e7ece8;
+  border-radius: 5px;
+  box-shadow: 0 1px 4px rgb(24 38 29 / 3%);
+}
+.login-card h1 { margin-bottom: 13px; font-size: 20px; }
+.login-description { font-size: 10.5px; }
+.login-card .button,
+.login-card .input-control { min-height: 27px; height: 27px; border-radius: 4px; font-size: 11.5px; }
+.login-card .input-field label { font-size: 11px; }
+.form-divider { margin: 10px 0 8px; font-size: 9.5px; }
+.login-card form { gap: 7px; }
 .login-card .button-google {
   border-color: #dfe5e0;
   color: #303833;
-  background: #fff;
+  background: #e4f5eb;
 }
-.login-card .button-google:hover:not(:disabled) { border-color: #cbd5ce; background: #f8faf8; }
+.login-card .button-google:hover:not(:disabled) { border-color: #cbd5ce; background: #daf0e3; }
 .login-brand { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 18px; color: #28312b; font-size: 15px; font-weight: 650; }
 .login-brand .brand-mark { width: 26px; height: 26px; }
 .login-brand .brand-mark > span { font-size: 14px; }
@@ -874,17 +925,14 @@ button { cursor: pointer; }
 .mailbox-heading > div > span { color: #89928c; font-size: 10px; font-weight: 600; letter-spacing: .08em; }
 .mailbox-heading h1 { margin: 3px 0 2px; color: #252c27; font-size: 18px; font-weight: 600; line-height: 1.35; }
 .mailbox-heading p { margin: 0; color: #7b857e; font-size: 12px; }
-.compose-header-actions .compose-later-button {
-  display: inline-flex; min-height: 36px; align-items: center; justify-content: center; gap: 6px;
-  padding: 0 11px; border: 1px solid #dfe5e0; border-radius: 6px; color: #48534b;
-  background: #fff; font-size: 12px; font-weight: 500; white-space: nowrap;
-}
-.compose-header-actions .compose-later-button:hover:not(:disabled) { border-color: #b9c7bd; background: #f8faf8; }
-.compose-header-actions .compose-later-button:focus-visible,
+.compose-header-actions .compose-schedule-button:focus-visible,
 .upload-list-remove:focus-visible { outline: 2px solid #00a651; outline-offset: 2px; }
-.compose-header-actions .compose-later-button:disabled { cursor: wait; opacity: .65; }
-.compose-header-actions > .compose-submit-button { width: auto; min-width: 92px; min-height: 36px; height: 36px; border-radius: 6px; color: #fff; background: #00a651; font-size: 12px; font-weight: 600; }
+.compose-header-copy { display: grid; min-width: 0; gap: 2px; }
+.compose-schedule-summary { overflow: hidden; color: #728077; font-size: 11px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.compose-header-actions > .compose-submit-button { width: 92px; min-width: 92px; min-height: 36px; height: 36px; border-radius: 6px; color: #fff; background: #00a651; font-size: 12px; font-weight: 600; }
 .compose-header-actions > .compose-submit-button:hover:not(:disabled) { color: #fff; background: #008f46; }
+.compose-header-actions > .compose-submit-button.is-send-later { border: 1px solid #00a651; color: #00a651; background: #fff; }
+.compose-header-actions > .compose-submit-button.is-send-later:hover:not(:disabled) { color: #008f46; background: #f5fbf7; }
 .schedule-popover { width: min(300px, calc(100vw - 24px)); padding: 15px; border-color: #e1e7e2; border-radius: 8px; box-shadow: 0 8px 24px rgb(24 38 29 / 12%); }
 .schedule-popover input { min-height: 36px; border: 1px solid #dfe5e0; border-radius: 5px; font-size: 13px; }
 .schedule-popover-actions .schedule-done { min-height: 34px; padding: 0 12px; border-radius: 5px; background: #00a651; font-size: 12px; }
@@ -899,8 +947,7 @@ button { cursor: pointer; }
   .mailbox-heading { min-height: 72px; padding: 10px 14px 12px; }
   .mailbox-heading h1 { font-size: 16px; }
   .mailbox-heading p { font-size: 11px; }
-  .compose-header-actions .compose-later-button { min-height: 34px; gap: 4px; padding: 0 7px; font-size: 11px; }
-  .compose-header-actions .compose-later-button svg { width: 14px; height: 14px; }
+  .compose-schedule-summary { max-width: 48vw; font-size: 10px; }
   .compose-header-actions > .compose-submit-button { min-width: 78px; min-height: 34px; height: 34px; padding: 0 8px; font-size: 11px; }
   .upload-list-remove { font-size: 10px; }
 }
@@ -909,7 +956,113 @@ button { cursor: pointer; }
   .compose-header-title h1 { font-size: 14px; }
   .compose-header-actions { gap: 4px; }
   .compose-header-actions .compose-attach-button { width: 32px; }
-  .compose-header-actions .compose-later-button { padding: 0 5px; }
+  .compose-schedule-summary { max-width: 42vw; font-size: 9px; }
   .compose-header-actions > .compose-submit-button { min-width: 70px; }
 }
 
+/* Keep the action row compact like the compose reference at every viewport. */
+.compose-header-actions {
+  gap: 8px;
+  align-items: center;
+}
+.compose-header-actions .compose-icon-button {
+  width: 20px;
+  height: 22px;
+  color: #78827b;
+}
+.compose-header-actions .compose-icon-button:hover {
+  color: #3e6f4f;
+  background: transparent;
+}
+.compose-header-actions .compose-icon-button svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.7;
+}
+.compose-header-actions > .compose-submit-button {
+  width: 62px;
+  min-width: 62px;
+  min-height: 22px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid #00a651;
+  border-radius: 999px;
+  color: #00a651;
+  background: #fff;
+  font-size: 8.5px;
+  font-weight: 500;
+}
+.compose-header-actions > .compose-submit-button.is-send-now {
+  color: #00a651;
+  background: #fff;
+}
+.compose-header-actions > .compose-submit-button:hover:not(:disabled),
+.compose-header-actions > .compose-submit-button.is-send-now:hover:not(:disabled),
+.compose-header-actions > .compose-submit-button.is-send-later:hover:not(:disabled) {
+  border-color: #008f46;
+  color: #008f46;
+  background: #f5fbf7;
+}
+.compose-header-actions > .compose-submit-button.is-send-later {
+  border: 1px solid #00a651;
+  color: #00a651;
+  background: #fff;
+}
+
+@media (max-width: 600px) {
+  .compose-header-actions { gap: 7px; }
+  .compose-header-actions .compose-icon-button { width: 20px; height: 22px; }
+  .compose-header-actions > .compose-submit-button { width: 62px; min-width: 62px; height: 22px; }
+}
+
+/* Keep delay and rate-limit controls readable instead of allowing labels to collide. */
+.scheduling-controls {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.25fr) minmax(220px, 1fr);
+  align-items: start;
+  column-gap: 24px;
+  row-gap: 10px;
+}
+.scheduling-group {
+  min-width: 0;
+  flex-wrap: wrap;
+  align-content: center;
+  row-gap: 5px;
+}
+.scheduling-label {
+  min-width: 0;
+  white-space: normal;
+}
+.scheduling-input-pair {
+  flex: none;
+}
+.scheduling-input-pair select {
+  width: 78px;
+}
+.scheduling-inline-group:first-child .scheduling-input-pair select {
+  width: 78px;
+}
+.hourly-limit-input {
+  flex: none;
+  width: 48px;
+}
+.scheduling-unit {
+  flex: none;
+}
+.scheduling-error {
+  flex-basis: 100%;
+}
+
+@media (max-width: 700px) {
+  .scheduling-controls {
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 0;
+  }
+  .scheduling-group {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .scheduling-label {
+    flex: 1 1 180px;
+  }
+}

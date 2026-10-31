@@ -74,11 +74,6 @@ export default function ComposeEmail() {
   const [feedback, setFeedback] = useState<ComposeFeedback | null>(null)
   const [submittingMode, setSubmittingMode] = useState<'send' | 'schedule' | null>(null)
   const submitting = submittingMode !== null
-  const scheduledDate = scheduledAt ? new Date(scheduledAt) : null
-  const hasValidScheduledTime = scheduledDate !== null
-    && Number.isFinite(scheduledDate.getTime())
-    && scheduledDate.getTime() > Date.now()
-
   const loadSenders = useCallback(async () => {
     setSendersLoading(true)
     setSendersError('')
@@ -191,8 +186,7 @@ export default function ComposeEmail() {
       return false
     }
     setScheduledAt(selectedDateTime.toISOString())
-    setFeedback({ type: 'success', message: `Scheduling for ${formatLocalDate(selectedDateTime.toISOString())}…` })
-    void submitEmail('schedule', undefined, selectedDateTime.toISOString())
+    setFeedback({ type: 'success', message: `Scheduled for ${formatLocalDate(selectedDateTime.toISOString())}. Click Send Later to queue this email.` })
     return true
   }
 
@@ -203,10 +197,10 @@ export default function ComposeEmail() {
   }
 
   function sendEmail(event?: FormEvent<HTMLFormElement>) {
-    void submitEmail('send', event)
+    void submitEmail(scheduledAt !== null ? 'schedule' : 'send', event)
   }
 
-  async function submitEmail(mode: 'send' | 'schedule', event?: FormEvent<HTMLFormElement>, scheduleOverride?: string) {
+  async function submitEmail(mode: 'send' | 'schedule', event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault()
     if (inFlightRef.current) return
     if (attachmentError) {
@@ -219,8 +213,7 @@ export default function ComposeEmail() {
     const invalidRecipient = !recipientCommit.valid || normalizedRecipients.some(email => !isValidRecipientEmail(email))
     const hasBody = hasMeaningfulBodyContent(body)
     const senderExists = selectedSender !== null && senders.some(sender => sender.id === selectedSender.id)
-    const effectiveScheduledAt = scheduleOverride ?? scheduledAt
-    const startDateTime = mode === 'schedule' && effectiveScheduledAt ? new Date(effectiveScheduledAt) : null
+    const startDateTime = mode === 'schedule' && scheduledAt ? new Date(scheduledAt) : null
     const delayMultiplier = delayUnit === 'seconds' ? 1_000 : delayUnit === 'minutes' ? 60_000 : 3_600_000
     const minimumDelayMs = delayValue * delayMultiplier
     const limitsAreValid = Number.isSafeInteger(minimumDelayMs)
@@ -228,7 +221,6 @@ export default function ComposeEmail() {
       && Number.isSafeInteger(hourlyLimit) && hourlyLimit >= 1 && hourlyLimit <= 10_000
 
     if (mode === 'schedule' && (!startDateTime || !isSelectedLocalTime(startDateTime, startDate, startTime) || startDateTime.getTime() <= Date.now())) {
-      setScheduledAt(null)
       setFeedback({ type: 'error', message: 'Choose a valid future date and time before scheduling.' })
       return
     }
@@ -282,8 +274,13 @@ export default function ComposeEmail() {
       setStartTime('')
       setScheduledAt(null)
       setAttachments([])
-      setFeedback({ type: 'success', message: `${mode === 'send' ? 'Email queued for immediate delivery' : 'Email scheduled successfully'}${attachments.length > 0 ? ' with attachments' : ''}.` })
       refreshEmails()
+      navigate(mode === 'send' ? '/dashboard/sent' : '/dashboard/scheduled', {
+        replace: true,
+        state: {
+          mailboxNotice: `${mode === 'send' ? 'Email queued for delivery' : 'Email scheduled successfully'}${attachments.length > 0 ? ' with attachments' : ''}.`,
+        },
+      })
     } catch (error) {
       setFeedback({ type: 'error', message: getApiErrorMessage(error) })
       refreshEmails()
@@ -304,6 +301,7 @@ export default function ComposeEmail() {
         onScheduleCancel={cancelScheduleSelection}
         submitting={submitting}
         submittingMode={submittingMode}
+        scheduleLabel={scheduledAt ? formatLocalDate(scheduledAt) : null}
         startDate={startDate}
         startTime={startTime}
         onStartDateChange={value => { setStartDate(value); setScheduledAt(null); setFeedback(null) }}
@@ -361,10 +359,6 @@ export default function ComposeEmail() {
           onDelayUnitChange={value => { setDelayUnit(value); setFeedback(null) }}
           onHourlyLimitChange={value => { setHourlyLimit(value); setFeedback(null) }}
         />
-        {hasValidScheduledTime && scheduledAt && <p className="schedule-selected-summary" role="status">
-          Scheduled for {formatLocalDate(scheduledAt)}. Click Schedule to queue this email.
-        </p>}
-
         <RichTextEditor value={body} onChange={setBody} linkRequest={0} />
         <AttachmentPreview
           attachments={attachments}

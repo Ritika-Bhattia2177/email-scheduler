@@ -28,6 +28,7 @@ export default function DashboardLayout() {
   const isReadingEmail = location.pathname.startsWith('/dashboard/email/')
   const toggleSidebar = () => setCollapsed(value => !value)
   const refreshEmails = () => setRefreshKey(value => value + 1)
+  const mailboxNotice = (location.state as { mailboxNotice?: string } | null)?.mailboxNotice
 
   return (
     <div className={`dashboard-shell ${isComposing ? 'is-composing' : ''} ${isReadingEmail ? 'is-reading-email' : ''}`}>
@@ -35,6 +36,7 @@ export default function DashboardLayout() {
       <div className="dashboard-main">
         {!isComposing && !isReadingEmail && <Header search={search} onSearchChange={setSearch} onToggleSidebar={toggleSidebar} onRefresh={refreshEmails} statusFilter={statusFilter} onStatusFilterChange={setStatusFilter} />}
         <main className={`dashboard-content ${location.pathname.startsWith('/dashboard/') ? 'dashboard-content-mailbox' : ''} ${isReadingEmail ? 'dashboard-content-detail' : ''} ${isComposing ? 'dashboard-content-compose' : ''}`}>
+          {mailboxNotice && !isReadingEmail && <p className="dashboard-toast" role="status">{mailboxNotice}</p>}
           <Outlet context={{ search, statusFilter, toggleSidebar, refreshKey, refreshEmails } satisfies DashboardOutletContext} />
         </main>
       </div>

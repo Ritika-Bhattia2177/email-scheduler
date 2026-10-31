@@ -10,9 +10,6 @@ export default function ScheduledEmails() {
 
   return (
     <section className="scheduled-page">
-      <header className="mailbox-heading">
-        <div><span>MAILBOX</span><h1>Scheduled</h1><p>Emails waiting to be sent</p></div>
-      </header>
       <EmailList
         emails={emails}
         loading={loading}
