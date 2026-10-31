@@ -87,6 +87,7 @@ if (!/^postgres(?:ql)?:\/\//i.test(databaseUrl)) {
 }
 
 const redisUrl = optionalString('REDIS_URL')
+const slackRedirectUri = optionalString('SLACK_REDIRECT_URI')
 if (redisUrl) {
   let parsedRedisUrl: URL
   try {
@@ -94,8 +95,24 @@ if (redisUrl) {
   } catch {
     throw new Error('REDIS_URL must be a valid Redis connection URL')
   }
+
   if (!['redis:', 'rediss:'].includes(parsedRedisUrl.protocol) || !parsedRedisUrl.hostname) {
     throw new Error('REDIS_URL must use the redis:// or rediss:// protocol')
+  }
+}
+if (slackRedirectUri) {
+  let parsedSlackRedirectUri: URL
+  try {
+    parsedSlackRedirectUri = new URL(slackRedirectUri)
+  } catch {
+    throw new Error('SLACK_REDIRECT_URI must be a valid HTTP(S) URL')
+  }
+  if (!['http:', 'https:'].includes(parsedSlackRedirectUri.protocol)
+    || !parsedSlackRedirectUri.pathname.endsWith('/api/slack/oauth/callback')) {
+    throw new Error('SLACK_REDIRECT_URI must point to /api/slack/oauth/callback')
+  }
+  if (nodeEnv === 'production' && parsedSlackRedirectUri.hostname === 'localhost') {
+    throw new Error('SLACK_REDIRECT_URI cannot use localhost in production')
   }
 }
 
@@ -174,7 +191,7 @@ export const env: Environment = {
   ELASTICSEARCH_PASSWORD: optionalString('ELASTICSEARCH_PASSWORD'),
   SLACK_CLIENT_ID: optionalString('SLACK_CLIENT_ID'),
   SLACK_CLIENT_SECRET: optionalString('SLACK_CLIENT_SECRET'),
-  SLACK_REDIRECT_URI: optionalString('SLACK_REDIRECT_URI'),
+  SLACK_REDIRECT_URI: slackRedirectUri ?? (nodeEnv === 'production' ? undefined : 'http://localhost:5000/api/slack/oauth/callback'),
   SLACK_SCOPES: optionalString('SLACK_SCOPES') ?? 'chat:write',
   SLACK_NOTIFICATION_CHANNEL_ID: optionalString('SLACK_NOTIFICATION_CHANNEL_ID'),
   SLACK_TOKEN_ENCRYPTION_KEY: optionalString('SLACK_TOKEN_ENCRYPTION_KEY'),

@@ -191,7 +191,7 @@ Names below are read by `backend/src/config/env.ts` or Vite. Values are intentio
 | `ELASTICSEARCH_PASSWORD` | Backend | Optional | Elasticsearch basic-auth password when used with username |
 | `SLACK_CLIENT_ID` | Backend | Optional until Slack OAuth | Slack app client ID |
 | `SLACK_CLIENT_SECRET` | Backend | Optional until Slack OAuth | Slack app client secret |
-| `SLACK_REDIRECT_URI` | Backend | Optional until Slack OAuth | Registered Slack redirect URI |
+| `SLACK_REDIRECT_URI` | Backend | Required for Slack OAuth; local default is `http://localhost:5000/api/slack/oauth/callback` | Must exactly match the Slack app; production must use `https://email-scheduler-backend-7x2p.onrender.com/api/slack/oauth/callback` |
 | `SLACK_SCOPES` | Backend | Optional; `chat:write` | Bot OAuth scopes |
 | `SLACK_NOTIFICATION_CHANNEL_ID` | Backend | Optional until notifications are enabled | Target channel for worker notifications |
 | `SLACK_TOKEN_ENCRYPTION_KEY` | Backend | Optional until token storage; needs at least 32 bytes | Key material for encrypted OAuth tokens |

@@ -56,6 +56,14 @@ export async function createOAuthAuthorizationUrl(userId: string): Promise<strin
   const state = randomBytes(32).toString('hex')
   const stored = await redisConnection.set(oauthStateKey(state), userId, 'EX', OAUTH_STATE_TTL_SECONDS, 'NX')
   if (stored !== 'OK') throw new SlackServiceError('Could not create Slack OAuth state', 503)
+  console.info(JSON.stringify({
+    level: 'info',
+    event: 'slack_oauth_start',
+    userId,
+    redirectUri,
+    stateCreated: true,
+    stateTtlSeconds: OAUTH_STATE_TTL_SECONDS,
+  }))
 
   const url = new URL('https://slack.com/oauth/v2/authorize')
   url.searchParams.set('client_id', clientId)
@@ -71,7 +79,11 @@ export async function consumeOAuthState(state: string): Promise<string | null> {
     1,
     oauthStateKey(state),
   )
-  if (typeof result === 'string') return result
+  if (typeof result === 'string') {
+    console.info(JSON.stringify({ level: 'info', event: 'slack_oauth_state_validation_success', stateConsumed: true }))
+    return result
+  }
+  console.warn(JSON.stringify({ level: 'warn', event: 'slack_oauth_state_validation_failure', reason: 'missing_or_expired' }))
   return null
 }
 
@@ -79,6 +91,7 @@ export async function exchangeOAuthCode(code: string): Promise<SlackOAuthTokenRe
   const clientId = requireSetting(env.SLACK_CLIENT_ID, 'SLACK_CLIENT_ID')
   const clientSecret = requireSetting(env.SLACK_CLIENT_SECRET, 'SLACK_CLIENT_SECRET')
   const redirectUri = requireSetting(env.SLACK_REDIRECT_URI, 'SLACK_REDIRECT_URI')
+  console.info(JSON.stringify({ level: 'info', event: 'slack_oauth_token_exchange_started', redirectUri }))
   const body = new URLSearchParams({
     client_id: clientId,
     client_secret: clientSecret,
@@ -100,6 +113,7 @@ export async function exchangeOAuthCode(code: string): Promise<SlackOAuthTokenRe
 
   const payload: unknown = await response.json().catch(() => null)
   if (!response.ok || !isRecord(payload) || payload.ok !== true || typeof payload.access_token !== 'string') {
+    console.warn(JSON.stringify({ level: 'warn', event: 'slack_oauth_token_exchange_failed', status: response.status }))
     throw new SlackServiceError('Slack authorization could not be completed', 502)
   }
 
@@ -109,6 +123,7 @@ export async function exchangeOAuthCode(code: string): Promise<SlackOAuthTokenRe
     throw new SlackServiceError('Slack returned incomplete workspace information', 502)
   }
 
+  console.info(JSON.stringify({ level: 'info', event: 'slack_oauth_token_exchange_succeeded', teamId: team.id }))
   return {
     accessToken: payload.access_token,
     teamId: team.id,
@@ -142,6 +157,7 @@ export async function completeOAuthConnection(userId: string, code: string): Pro
     },
     select: { teamId: true, teamName: true, slackUserId: true, connectedAt: true },
   })
+  console.info(JSON.stringify({ level: 'info', event: 'slack_connection_saved', userId, teamId: connection.teamId }))
 
   return {
     connected: true,

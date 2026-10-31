@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { env } from '../config/env'
 import { getRequestUserId } from '../utils/requestUser'
 import {
   completeOAuthConnection,
@@ -22,6 +23,13 @@ slackRouter.get('/oauth/start', async (request, response, next) => {
 
 slackRouter.get('/oauth/callback', async (request, response) => {
   const state = typeof request.query.state === 'string' ? request.query.state : ''
+  console.info(JSON.stringify({
+    level: 'info',
+    event: 'slack_oauth_callback_received',
+    hasState: Boolean(state),
+    hasCode: typeof request.query.code === 'string',
+    hasError: typeof request.query.error === 'string',
+  }))
   if (!/^[a-f0-9]{64}$/i.test(state)) {
     response.status(400).json({ success: false, message: 'Slack OAuth state is missing or invalid' })
     return
@@ -43,8 +51,10 @@ slackRouter.get('/oauth/callback', async (request, response) => {
       return
     }
 
-    const connection = await completeOAuthConnection(userId, code)
-    response.json({ success: true, data: connection })
+    await completeOAuthConnection(userId, code)
+    const redirect = new URL('/dashboard/integrations/slack', requireFrontendUrl())
+    redirect.searchParams.set('slack_connected', '1')
+    response.redirect(302, redirect.toString())
   } catch (error) {
     if (error instanceof SlackServiceError) {
       response.status(error.statusCode).json({ success: false, message: error.message })
@@ -74,3 +84,8 @@ slackRouter.post('/disconnect', async (request, response, next) => {
 })
 
 export default slackRouter
+
+function requireFrontendUrl(): string {
+  if (!env.FRONTEND_URL) throw new SlackServiceError('FRONTEND_URL is not configured', 503)
+  return env.FRONTEND_URL
+}
