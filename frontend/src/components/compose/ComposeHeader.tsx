@@ -64,7 +64,7 @@ export default function ComposeHeader({ onBack, onAttach, attachmentCount, onSen
             onSend()
           }}
         >
-          {submittingMode === 'send' ? 'Sending…' : isScheduled ? 'Send Later' : 'Send'}
+          {submittingMode === 'send' ? 'Sending…' : submittingMode === 'schedule' ? 'Scheduling…' : isScheduled ? 'Schedule' : 'Send'}
         </button>
       </div>
     </header>

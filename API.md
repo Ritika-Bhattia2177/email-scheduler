@@ -20,22 +20,23 @@ The Slack OAuth callback is state-bound to the application user and does not req
 
 ### `POST /api/emails`
 
-Creates an email job, its recipients and optional attachments, then enqueues its delayed BullMQ job. Uses `multipart/form-data`; attachment input name is repeated `attachments`.
+Uses `multipart/form-data`; attachment input name is repeated `attachments`. `deliveryMode=send` submits synchronously through SMTP and persists `PROCESSING` before the attempt, then `SENT` only after SMTP acceptance. `deliveryMode=schedule` requires a future `scheduledAt`, persists `SCHEDULED`, and enqueues a BullMQ job. Omitting `deliveryMode` preserves legacy scheduled behavior.
 
 Fields:
 
 | Field | Format | Notes |
 |---|---|---|
+| `deliveryMode` | `send` or `schedule` | Required by the current frontend; omission means `schedule` for older API clients |
 | `senderAccountId` | UUID string | Must belong to the authenticated user |
 | `recipientEmails` | JSON-encoded array of email strings | At least one valid address; duplicates are normalized |
 | `subject` | string | Required; up to 998 characters |
 | `bodyHtml` | string | Required; up to 900,000 UTF-8 bytes |
-| `scheduledAt` | ISO date-time with timezone | Must be a valid future date/time |
+| `scheduledAt` | ISO date-time with timezone | Required for `schedule`; immediate sends use the server's current UTC time |
 | `minimumDelayMs` | positive integer string | Optional; defaults to `EMAIL_DELAY_MS`, maximum 24 hours |
 | `hourlyLimit` | positive integer string | Optional per-job sender limit, defaulting to `MAX_EMAILS_PER_SENDER_PER_HOUR`; maximum 10,000 (effective value is also capped by the environment sender maximum) |
 | `attachments` | file(s) | Optional; limits and accepted types are described in [ARCHITECTURE.md](ARCHITECTURE.md#attachments) |
 
-Send `Idempotency-Key: <client-generated-key>` for retries of the same logical request. Successful creation returns `201`; a duplicate successful/in-progress request with the same key and user returns the existing record with `200`. A key belonging to another user, or a key whose job is failed/cancelled, returns `409`.
+Send `Idempotency-Key: <client-generated-key>` for retries of the same logical request. Successful sends and scheduled requests return `201`; SMTP failure persists `FAILED` and returns an error. A duplicate successful/in-progress request with the same key and user returns the existing record with `200` without delivering again. A key belonging to another user, or a key whose job is failed/cancelled, returns `409`.
 
 Example (the file argument is optional):
 
@@ -44,6 +45,7 @@ curl -X POST 'http://localhost:5000/api/emails' \\
   -H "x-user-id: $DEV_USER_ID" \\
   -H 'Idempotency-Key: local-compose-attempt-001' \\
   -F 'senderAccountId=<sender-uuid>' \\
+  -F 'deliveryMode=schedule' \\
   -F 'recipientEmails=["recipient@example.test"]' \\
   -F 'subject=Scheduled message' \\
   -F 'bodyHtml=<p>Hello</p>' \\
@@ -53,19 +55,19 @@ curl -X POST 'http://localhost:5000/api/emails' \\
   -F 'attachments=@./document.pdf'
 ```
 
-The success `data` contains the email job, sender, recipients, attachment metadata (never the server storage path), and queue information. `cc`/`bcc` are not supported and are rejected.
+The success `data` contains the email job, sender, recipients, attachment metadata (never the server storage path), and queue information for scheduled requests. `cc`/`bcc` are not supported and are rejected.
 
 ### `GET /api/emails`
 
-Returns scheduled or sent jobs owned by the authenticated user.
+Returns scheduled, sent, or failed jobs owned by the authenticated user.
 
 | Query | Default | Allowed |
 |---|---:|---|
-| `status` | `scheduled` | `scheduled`, `sent` |
+| `status` | `scheduled` | `scheduled`, `sent`, `failed` |
 | `page` | `1` | Positive integer |
 | `limit` | `100` | Positive integer up to `100` |
 
-Returns `{ success, data: EmailJob[], pagination: { page, limit, total, totalPages } }`. Extremely large offsets are rejected. This endpoint does not return failed/processing/cancelled statuses.
+Returns `{ success, data: EmailJob[], pagination: { page, limit, total, totalPages } }`. Extremely large offsets are rejected. This endpoint does not return processing/cancelled statuses.
 
 ### `GET /api/emails/search`
 
@@ -164,7 +166,8 @@ Names below are read by `backend/src/config/env.ts` or Vite. Values are intentio
 | `AUTH_MODE` | Backend | Optional; `production` in code (example sets `development`) | Enables development `x-user-id` only when set to development |
 | `PORT` | Backend | Optional; `5000` | HTTP listener port |
 | `DATABASE_URL` | Backend | Required | PostgreSQL connection URL |
-| `REDIS_HOST` | Backend | Optional; `localhost` | Redis host shared by queue/services |
+| `REDIS_URL` | Backend | Optional | Redis connection URL (for Render, use the private/internal URL when available); takes precedence over host settings |
+| `REDIS_HOST` | Backend | Optional; `localhost` | Redis host shared by queue/services when `REDIS_URL` is not set |
 | `REDIS_PORT` | Backend | Optional; `6379` | Redis port |
 | `REDIS_PASSWORD` | Backend | Optional | Redis password |
 | `WORKER_CONCURRENCY` | Backend | Optional; `5` | BullMQ worker concurrency |
@@ -174,8 +177,8 @@ Names below are read by `backend/src/config/env.ts` or Vite. Values are intentio
 | `SMTP_HOST` | Backend | Optional; `smtp.ethereal.email` | Configured SMTP host |
 | `SMTP_PORT` | Backend | Optional; `587` | SMTP port |
 | `SMTP_SECURE` | Backend | Optional; `false` | SMTP TLS mode |
-| `SMTP_USER` | Backend | Optional in development; paired with password | SMTP username; if absent in development, Ethereal test credentials are generated |
-| `SMTP_PASSWORD` | Backend | Optional in development; paired with user | SMTP password |
+| `SMTP_USER` | Backend | Required in production; paired with password | SMTP username; if absent in development, Ethereal test credentials are generated |
+| `SMTP_PASSWORD` | Backend | Required in production; paired with user | SMTP password |
 | `SMTP_FROM` | Backend | Optional | Optional From header override |
 | `ELASTICSEARCH_NODE` | Backend | Optional; code `http://localhost:9200`, example HTTPS | Elasticsearch endpoint |
 | `ELASTICSEARCH_INDEX` | Backend | Optional; `emails` | Search index name |

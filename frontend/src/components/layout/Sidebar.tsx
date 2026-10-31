@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Clock3, ChevronDown, Mail, Plus, Send, Slack } from 'lucide-react'
+import { AlertCircle, Clock3, ChevronDown, Mail, Plus, Send, Slack } from 'lucide-react'
 import type { ReactNode } from 'react'
 import UserMenu from '../common/UserMenu'
 
@@ -37,6 +37,7 @@ export default function Sidebar({ collapsed, onToggle, accountName, accountEmail
         <span className="sidebar-section-label">CORE</span>
         <SidebarLink to="/dashboard/scheduled" label="Scheduled" icon={<Clock3 size={12} strokeWidth={1.8} />} />
         <SidebarLink to="/dashboard/sent" label="Sent" icon={<Send size={12} strokeWidth={1.8} />} />
+        <SidebarLink to="/dashboard/failed" label="Failed" icon={<AlertCircle size={12} strokeWidth={1.8} />} />
         <span className="sidebar-section-label">INTEGRATIONS</span>
         <SidebarLink to="/dashboard/integrations/slack" label="Slack" icon={<Slack size={12} strokeWidth={1.8} />} />
       </nav>

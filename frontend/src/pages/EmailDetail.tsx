@@ -121,6 +121,7 @@ export default function EmailDetail() {
   const senderName = email.senderAccount.displayName || email.senderAccount.email
   const date = email.status === 'SENT' && email.sentAt ? formatLocalDate(email.sentAt) : formatLocalDate(email.scheduledAt)
   const attachments = toEmailAttachments(email.attachments)
+  const deliveryOutcomeUnknown = email.events?.some(event => event.type === 'FAILED' && event.message?.startsWith('Delivery outcome unknown;')) ?? false
 
   return (
     <article className="email-detail-page">
@@ -135,7 +136,7 @@ export default function EmailDetail() {
           {email.status === 'SCHEDULED'
             ? <button className="detail-action" type="button" aria-label="Cancel scheduled email" title="Cancel scheduled email" disabled={canceling} onClick={() => void cancelScheduledEmail()}><Trash2 size={14} /></button>
             : email.status === 'FAILED'
-              ? <button className="detail-action" type="button" aria-label={retrying ? 'Retrying email' : 'Retry failed email'} title="Retry failed email" disabled={retrying} onClick={() => void retryFailedEmail()}><RotateCw size={14} /></button>
+              ? <button className="detail-action" type="button" aria-label={retrying ? 'Retrying email' : 'Retry failed email'} title={deliveryOutcomeUnknown ? 'Check SMTP provider before retrying' : 'Retry failed email'} disabled={retrying || deliveryOutcomeUnknown} onClick={() => void retryFailedEmail()}><RotateCw size={14} /></button>
               : <button className="detail-action" type="button" aria-label="Delete" onClick={() => chooseMoreAction('Delete')}><Trash2 size={14} /></button>}
           <span className="detail-toolbar-divider" />
           <span className="detail-toolbar-avatar" aria-hidden="true">{initials(senderName)}</span>
@@ -144,6 +145,7 @@ export default function EmailDetail() {
 
       {notice && <div className="detail-notice" role={notice === 'Scheduled email cancelled.' || notice === 'Email scheduled for retry.' ? 'status' : 'alert'}>{notice}<button type="button" onClick={() => setNotice('')} aria-label="Dismiss"><X size={13} /></button></div>}
       {error && <div className="detail-notice" role="alert">{error}</div>}
+      {email.status === 'FAILED' && deliveryOutcomeUnknown && <div className="detail-notice" role="alert">Delivery outcome is unknown. Check your SMTP provider before retrying to avoid a duplicate email.</div>}
 
       <section className="detail-message" aria-label="Email message">
         <div className="detail-sender-row">

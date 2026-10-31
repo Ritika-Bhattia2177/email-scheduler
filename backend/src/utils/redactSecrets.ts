@@ -2,6 +2,7 @@ import { env } from '../config/env'
 
 const configuredSecrets = [
   env.DATABASE_URL,
+  env.REDIS_URL,
   env.REDIS_PASSWORD,
   env.SMTP_HOST,
   env.SMTP_USER,

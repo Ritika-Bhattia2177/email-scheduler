@@ -2,12 +2,16 @@ import Redis from 'ioredis'
 import { env } from './env'
 import { redactSecrets } from '../utils/redactSecrets'
 
-export const redisConnection = new Redis({
-  host: env.REDIS_HOST,
-  port: env.REDIS_PORT,
-  ...(env.REDIS_PASSWORD ? { password: env.REDIS_PASSWORD } : {}),
-  maxRetriesPerRequest: null,
-})
+const redisOptions = { maxRetriesPerRequest: null }
+
+export const redisConnection = env.REDIS_URL
+  ? new Redis(env.REDIS_URL, redisOptions)
+  : new Redis({
+    host: env.REDIS_HOST,
+    port: env.REDIS_PORT,
+    ...(env.REDIS_PASSWORD ? { password: env.REDIS_PASSWORD } : {}),
+    ...redisOptions,
+  })
 
 let connectionWarningLogged = false
 
@@ -23,6 +27,7 @@ redisConnection.on('error', (error: Error) => {
 })
 
 redisConnection.on('ready', () => {
+  console.info(JSON.stringify({ level: 'info', event: 'redis_connection_ready' }))
   if (connectionWarningLogged) {
     console.info(JSON.stringify({ level: 'info', event: 'redis_connection_restored' }))
   }

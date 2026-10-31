@@ -23,7 +23,12 @@ export interface SendEmailResult {
 }
 
 export class EmailDeliveryError extends Error {
-  constructor(message: string, public readonly retryable: boolean, options?: ErrorOptions) {
+  constructor(
+    message: string,
+    public readonly retryable: boolean,
+    options?: ErrorOptions,
+    public readonly deliveryUncertain = false,
+  ) {
     super(message, options)
     this.name = 'EmailDeliveryError'
   }
@@ -35,9 +40,10 @@ let etherealTransporter = false
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
   const transporter = await getTransporter()
   const from = env.SMTP_FROM ?? `${input.senderName} <${input.senderEmail}>`
+  let info: SentMessageInfo
 
   try {
-    const info = await transporter.sendMail({
+    info = await transporter.sendMail({
       from,
       to: input.recipients,
       subject: input.subject,
@@ -46,11 +52,20 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       attachments: input.attachments,
     })
 
-    const preview = etherealTransporter ? nodemailer.getTestMessageUrl(info) : false
-    return { info, previewUrl: typeof preview === 'string' ? preview : undefined }
   } catch (error) {
-    throw new EmailDeliveryError(errorMessage(error), true, { cause: error })
+    throw new EmailDeliveryError(
+      errorMessage(error),
+      isSafeToRetrySmtpRejection(error),
+      { cause: error },
+      isSmtpAcceptanceUncertain(error),
+    )
   }
+
+  if (!info.accepted?.length) {
+    throw new EmailDeliveryError('SMTP did not accept any recipients', false)
+  }
+  const preview = etherealTransporter ? nodemailer.getTestMessageUrl(info) : false
+  return { info, previewUrl: typeof preview === 'string' ? preview : undefined }
 }
 
 async function getTransporter(): Promise<Transporter<SentMessageInfo>> {
@@ -116,4 +131,20 @@ function htmlToText(html: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown email delivery error'
+}
+
+function isSafeToRetrySmtpRejection(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const value = error as { responseCode?: unknown; accepted?: unknown }
+  const acceptedCount = Array.isArray(value.accepted) ? value.accepted.length : 0
+  return typeof value.responseCode === 'number'
+    && value.responseCode >= 400 && value.responseCode < 500
+    && acceptedCount === 0
+}
+
+function isSmtpAcceptanceUncertain(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return true
+  const value = error as { responseCode?: unknown; accepted?: unknown }
+  if (typeof value.responseCode === 'number' && value.responseCode >= 400 && value.accepted === undefined) return false
+  return Array.isArray(value.accepted) ? value.accepted.length > 0 : true
 }

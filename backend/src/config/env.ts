@@ -86,11 +86,25 @@ if (!/^postgres(?:ql)?:\/\//i.test(databaseUrl)) {
   throw new Error('DATABASE_URL must be a PostgreSQL connection URL')
 }
 
+const redisUrl = optionalString('REDIS_URL')
+if (redisUrl) {
+  let parsedRedisUrl: URL
+  try {
+    parsedRedisUrl = new URL(redisUrl)
+  } catch {
+    throw new Error('REDIS_URL must be a valid Redis connection URL')
+  }
+  if (!['redis:', 'rediss:'].includes(parsedRedisUrl.protocol) || !parsedRedisUrl.hostname) {
+    throw new Error('REDIS_URL must use the redis:// or rediss:// protocol')
+  }
+}
+
 export interface Environment {
   NODE_ENV: 'development' | 'test' | 'production'
   AUTH_MODE: 'development' | 'production'
   PORT: number
   DATABASE_URL: string
+  REDIS_URL?: string
   REDIS_HOST: string
   REDIS_PORT: number
   REDIS_PASSWORD?: string
@@ -132,6 +146,7 @@ export const env: Environment = {
   AUTH_MODE: authModeValue,
   PORT: integer('PORT', 5000, 65535),
   DATABASE_URL: databaseUrl,
+  REDIS_URL: redisUrl,
   REDIS_HOST: optionalString('REDIS_HOST') ?? 'localhost',
   REDIS_PORT: integer('REDIS_PORT', 6379, 65535),
   REDIS_PASSWORD: optionalString('REDIS_PASSWORD'),

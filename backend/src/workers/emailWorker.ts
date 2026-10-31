@@ -4,11 +4,11 @@ import { redisConnection } from '../config/redis'
 import { EMAIL_QUEUE_NAME } from '../queues/emailQueue'
 import type { EmailQueueJobData, EmailQueueJobResult } from '../queues/queueTypes'
 import { env } from '../config/env'
-import { EmailDeliveryError, sendEmail } from '../services/email.service'
+import { EmailDeliveryError } from '../services/email.service'
+import { deliverEmailJob } from '../services/emailDeliveryService'
 import { commitEmailSend, releaseEmailSend, reserveEmailSend } from '../services/emailRateLimiter'
 import { syncEmailSearchDocument } from '../services/emailSearchService'
 import { notifyRateLimit } from '../services/slack.service'
-import { assertStoredAttachmentExists } from '../services/emailAttachmentStorage'
 import { redactSecrets } from '../utils/redactSecrets'
 
 export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
@@ -139,36 +139,9 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
     }
     await syncEmailSearchDocument(emailJob.id)
 
-    let delivery: Awaited<ReturnType<typeof sendEmail>>
+    let delivery: Awaited<ReturnType<typeof deliverEmailJob>>
     try {
-      const completeJob = await prisma.emailJob.findUnique({
-        where: { id: emailJob.id },
-        include: { senderAccount: true, recipients: true, attachments: true },
-      })
-      if (!completeJob || !completeJob.senderAccount) throw new EmailDeliveryError('Sender account was not found', false)
-      if (completeJob.recipients.length === 0) throw new EmailDeliveryError('Email job has no recipients', false)
-
-      console.info(JSON.stringify({ level: 'info', event: 'email_delivery_started', emailJobId: emailJob.id, recipientCount: completeJob.recipients.length }))
-      delivery = await sendEmail({
-        senderEmail: completeJob.senderAccount.email,
-        senderName: completeJob.senderAccount.displayName,
-        recipients: completeJob.recipients.map(recipient => recipient.email),
-        subject: completeJob.subject,
-        html: completeJob.bodyHtml,
-        attachments: await Promise.all(completeJob.attachments.map(async attachment => {
-          let attachmentPath: string
-          try {
-            attachmentPath = await assertStoredAttachmentExists(attachment.storagePath)
-          } catch {
-            throw new EmailDeliveryError('A scheduled email attachment is unavailable', false)
-          }
-          return {
-            filename: attachment.fileName,
-            path: attachmentPath,
-            contentType: attachment.mimeType,
-          }
-        })),
-      })
+      delivery = await deliverEmailJob(emailJob.id)
     } catch (error) {
       await safelyReleaseReservation(rateLimit.reservationId!, emailJob.senderAccountId, emailJob.id)
       await recordDeliveryFailure(emailJob.id, job, error)
@@ -189,20 +162,19 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
       }))
     }
 
-    await prisma.$transaction(async transaction => {
-      const updated = await transaction.emailJob.updateMany({
-        where: { id: emailJob.id, status: 'PROCESSING' },
-        data: { status: 'SENT', sentAt: new Date() },
-      })
-      if (updated.count === 0) throw new Error(`Email job ${emailJob.id} left PROCESSING before SMTP completion`)
-      await transaction.emailEvent.create({
-        data: {
-          emailJobId: emailJob.id,
-          type: 'SENT',
-          message: `SMTP accepted email${delivery.info.messageId ? ` (message ID: ${delivery.info.messageId})` : ''}.`,
-        },
-      })
-    })
+    try {
+      await persistSentStatus(emailJob.id, delivery.info.messageId)
+    } catch (error) {
+      // SMTP has accepted this message. Do not throw to BullMQ: retrying the
+      // whole processor could deliver the same email a second time.
+      console.error(JSON.stringify({
+        level: 'error',
+        event: 'email_sent_status_persistence_failed_after_smtp_success',
+        emailJobId: emailJob.id,
+        message: safeErrorMessage(error),
+      }))
+      return { outcome: 'sent-status-persistence-failed' }
+    }
     await syncEmailSearchDocument(emailJob.id)
 
     console.info(JSON.stringify({
@@ -226,8 +198,21 @@ emailWorker.on('completed', (job, result) => {
   console.info(JSON.stringify({ level: 'info', event: 'email_queue_job_completed', queueJobId: job.id, emailJobId: job.data.emailJobId, outcome: result.outcome }))
 })
 
+emailWorker.on('ready', () => {
+  console.info(JSON.stringify({ level: 'info', event: 'email_worker_ready', queueName: EMAIL_QUEUE_NAME }))
+})
+
 emailWorker.on('failed', (job, error) => {
   console.error(JSON.stringify({ level: 'error', event: 'email_queue_job_failed', queueJobId: job?.id, emailJobId: job?.data.emailJobId, message: safeErrorMessage(error) }))
+  if (!job || job.attemptsMade < (job.opts.attempts ?? 1)) return
+  void markExhaustedJobFailed(job.data.emailJobId, error).catch(persistenceError => {
+    console.error(JSON.stringify({
+      level: 'error',
+      event: 'email_final_failure_persistence_failed',
+      emailJobId: job.data.emailJobId,
+      message: safeErrorMessage(persistenceError),
+    }))
+  })
 })
 
 emailWorker.on('error', error => {
@@ -252,7 +237,7 @@ async function recordDeliveryFailure(emailJobId: string, job: Job<EmailQueueJobD
     })
     if (updated.count === 0) return
     if (finalAttempt) {
-      await transaction.emailEvent.create({ data: { emailJobId, type: 'FAILED', message: `Email delivery failed: ${message}` } })
+      await transaction.emailEvent.create({ data: { emailJobId, type: 'FAILED', message: failureEventMessage(error, `Email delivery failed: ${message}`) } })
     }
   })
   await syncEmailSearchDocument(emailJobId)
@@ -267,9 +252,64 @@ async function recordDeliveryFailure(emailJobId: string, job: Job<EmailQueueJobD
   }))
 }
 
+async function markExhaustedJobFailed(emailJobId: string, error: unknown): Promise<void> {
+  const message = safeErrorMessage(error)
+  const changed = await prisma.$transaction(async transaction => {
+    const updated = await transaction.emailJob.updateMany({
+      where: { id: emailJobId, status: { in: ['SCHEDULED', 'PROCESSING'] } },
+      data: { status: 'FAILED' },
+    })
+    if (updated.count === 0) return false
+    await transaction.emailEvent.create({
+      data: { emailJobId, type: 'FAILED', message: failureEventMessage(error, `Email worker exhausted retries: ${message}`) },
+    })
+    return true
+  })
+  if (!changed) return
+  await syncEmailSearchDocument(emailJobId)
+  console.error(JSON.stringify({ level: 'error', event: 'email_job_marked_failed_after_retries', emailJobId, message }))
+}
+
 function safeErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Unknown email delivery error'
   return redactSecrets(message)
+}
+
+function failureEventMessage(error: unknown, message: string): string {
+  return error instanceof EmailDeliveryError && error.deliveryUncertain
+    ? `Delivery outcome unknown; check the SMTP provider before retrying. ${message}`
+    : message
+}
+
+async function persistSentStatus(emailJobId: string, messageId?: string | false): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await prisma.$transaction(async transaction => {
+        const updated = await transaction.emailJob.updateMany({
+          where: { id: emailJobId, status: 'PROCESSING' },
+          data: { status: 'SENT', sentAt: new Date() },
+        })
+        if (updated.count === 0) {
+          const current = await transaction.emailJob.findUnique({ where: { id: emailJobId }, select: { status: true } })
+          if (current?.status === 'SENT') return
+          throw new Error(`Email job ${emailJobId} left PROCESSING before SMTP completion`)
+        }
+        await transaction.emailEvent.create({
+          data: {
+            emailJobId,
+            type: 'SENT',
+            message: `SMTP accepted email${typeof messageId === 'string' ? ` (message ID: ${messageId})` : ''}.`,
+          },
+        })
+      })
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 500))
+    }
+  }
+  throw lastError
 }
 
 async function safelyReleaseReservation(reservationId: string, senderAccountId: string, emailJobId: string): Promise<void> {

@@ -18,11 +18,12 @@ interface ComposeFeedback {
 }
 
 interface ScheduleEmailPayload {
+  deliveryMode: 'send' | 'schedule'
   senderAccountId: string
   subject: string
   bodyHtml: string
   recipientEmails: string[]
-  scheduledAt: string
+  scheduledAt?: string
   minimumDelayMs: number
   hourlyLimit: number
 }
@@ -234,19 +235,17 @@ export default function ComposeEmail() {
     }
 
     const payload: ScheduleEmailPayload = {
+      deliveryMode: mode,
       senderAccountId: selectedSender.id,
       subject: subject.trim(),
       bodyHtml: body,
       recipientEmails: normalizedRecipients,
-      // The existing API accepts future jobs only. A one-second lead time lets
-      // the existing BullMQ worker pick up an immediate-send request without
-      // adding another endpoint or bypassing worker rate-limit checks.
-      scheduledAt: (startDateTime ?? new Date(Date.now() + 1_000)).toISOString(),
+      ...(mode === 'schedule' && startDateTime ? { scheduledAt: startDateTime.toISOString() } : {}),
       minimumDelayMs,
       hourlyLimit,
     }
     const fingerprint = JSON.stringify({
-      payload: { ...payload, scheduledAt: mode === 'schedule' ? payload.scheduledAt : 'immediate' },
+      payload,
       attachments: attachments.map(({ file }) => ({ name: file.name, size: file.size, type: file.type, lastModified: file.lastModified })),
     })
     if (!submissionAttemptRef.current || submissionAttemptRef.current.fingerprint !== fingerprint) {
@@ -258,11 +257,12 @@ export default function ComposeEmail() {
     setFeedback(null)
     try {
       const formData = new FormData()
+      formData.append('deliveryMode', payload.deliveryMode)
       formData.append('senderAccountId', payload.senderAccountId)
       formData.append('subject', payload.subject)
       formData.append('bodyHtml', payload.bodyHtml)
       formData.append('recipientEmails', JSON.stringify(payload.recipientEmails))
-      formData.append('scheduledAt', payload.scheduledAt)
+      if (payload.scheduledAt) formData.append('scheduledAt', payload.scheduledAt)
       formData.append('minimumDelayMs', String(payload.minimumDelayMs))
       formData.append('hourlyLimit', String(payload.hourlyLimit))
       attachments.forEach(({ file }) => formData.append('attachments', file, file.name))
@@ -275,12 +275,13 @@ export default function ComposeEmail() {
       setStartTime('')
       setScheduledAt(null)
       setAttachments([])
-      setFeedback({ type: 'success', message: `${mode === 'send' ? 'Email accepted and queued for delivery' : 'Email scheduled successfully'}${attachments.length > 0 ? ' with attachments' : ''}.` })
+      setFeedback({ type: 'success', message: `${mode === 'send' ? 'Email sent successfully' : 'Email scheduled successfully'}${attachments.length > 0 ? ' with attachments' : ''}.` })
       refreshEmails()
-      if (mode === 'send') navigate('/dashboard/sent')
+      if (mode === 'send') window.setTimeout(() => navigate('/dashboard/sent'), 800)
       else window.setTimeout(() => navigate('/dashboard/scheduled'), 800)
     } catch (error) {
       setFeedback({ type: 'error', message: getApiErrorMessage(error) })
+      refreshEmails()
     } finally {
       inFlightRef.current = false
       setSubmittingMode(null)
@@ -357,7 +358,7 @@ export default function ComposeEmail() {
           onHourlyLimitChange={value => { setHourlyLimit(value); setFeedback(null) }}
         />
         {hasValidScheduledTime && scheduledAt && <p className="schedule-selected-summary" role="status">
-          Scheduled for {formatLocalDate(scheduledAt)}. Click Send Later to schedule this email.
+          Scheduled for {formatLocalDate(scheduledAt)}. Click Schedule to queue this email.
         </p>}
 
         <RichTextEditor value={body} onChange={setBody} linkRequest={0} />

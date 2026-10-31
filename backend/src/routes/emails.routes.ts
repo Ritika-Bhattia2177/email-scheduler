@@ -4,8 +4,10 @@ import { Prisma } from '../generated/prisma/client'
 import { prisma } from '../config/database'
 import { emailQueue } from '../queues/emailQueue'
 import { scheduleEmailJob } from '../services/emailSchedulerService'
+import { ImmediateEmailRateLimitError, ImmediateEmailStatusPersistenceError, sendEmailImmediately } from '../services/immediateEmailService'
 import { searchEmails, syncEmailSearchDocument } from '../services/emailSearchService'
 import { getRequestUserId } from '../utils/requestUser'
+import { redactSecrets } from '../utils/redactSecrets'
 import { env } from '../config/env'
 import {
   getUploadedAttachments,
@@ -39,10 +41,16 @@ emailsRouter.post('/', (request, _response, next) => {
       bodyHtml,
       recipientEmails,
       scheduledAt,
+      deliveryMode,
       idempotencyKey,
       minimumDelayMs,
       hourlyLimit,
     } = request.body as Record<string, unknown>
+
+    const resolvedDeliveryMode = deliveryMode === undefined ? 'schedule' : deliveryMode
+    if (resolvedDeliveryMode !== 'send' && resolvedDeliveryMode !== 'schedule') {
+      throw badRequest('deliveryMode must be send or schedule')
+    }
 
     if ('cc' in request.body || 'bcc' in request.body) throw badRequest('cc and bcc recipients are not supported')
 
@@ -76,7 +84,7 @@ emailsRouter.post('/', (request, _response, next) => {
       throw badRequest('recipientEmails must contain at least one valid email address')
     }
 
-    const scheduleDate = parseScheduledAt(scheduledAt)
+    const scheduleDate = resolvedDeliveryMode === 'send' ? new Date() : parseScheduledAt(scheduledAt)
 
     // An explicitly supplied delay must be positive. Omitted values still use
     // EMAIL_DELAY_MS, including an intentional zero-delay development setting.
@@ -97,10 +105,14 @@ emailsRouter.post('/', (request, _response, next) => {
           subject: subject.trim(),
           bodyHtml,
           scheduledAt: scheduleDate,
+          status: resolvedDeliveryMode === 'send' ? 'PROCESSING' : 'SCHEDULED',
           minimumDelayMs: resolvedMinimumDelayMs,
           hourlyLimit: resolvedHourlyLimit,
           idempotencyKey: key,
           recipients: { create: uniqueRecipients.map(email => ({ email })) },
+          ...(resolvedDeliveryMode === 'send' ? {
+            events: { create: { type: 'PROCESSING', message: 'Immediate SMTP delivery started.' } },
+          } : {}),
           ...(uploadedFiles.length > 0 ? {
             attachments: {
               create: uploadedFiles.map(file => ({
@@ -127,6 +139,25 @@ emailsRouter.post('/', (request, _response, next) => {
       return
     }
 
+    if (resolvedDeliveryMode === 'send') {
+      try {
+        await sendEmailImmediately(emailJob.id, sender.id, resolvedMinimumDelayMs, resolvedHourlyLimit)
+      } catch (error) {
+        const statusCode = error instanceof ImmediateEmailRateLimitError
+          ? error.statusCode
+          : error instanceof ImmediateEmailStatusPersistenceError ? error.statusCode : 502
+        const message = redactSecrets(error instanceof Error ? error.message : 'Email delivery failed')
+        response.status(statusCode).json({ success: false, message })
+        setImmediate(() => { void syncEmailSearchDocument(emailJob.id) })
+        return
+      }
+
+      const responseData = publicEmailJob(await emailJobResponse(emailJob.id))
+      response.status(201).json({ success: true, data: responseData })
+      setImmediate(() => { void syncEmailSearchDocument(emailJob.id) })
+      return
+    }
+
     const queued = await scheduleEmailJobOrFail(emailJob.id)
     const responseData = { ...publicEmailJob(await emailJobResponse(emailJob.id)), queue: queued }
     response.status(201).json({ success: true, data: responseData })
@@ -145,14 +176,16 @@ emailsRouter.get('/', async (request, response, next) => {
   try {
     const userId = getRequestUserId(request)
     const requestedStatus = request.query.status
-    if (requestedStatus !== undefined && requestedStatus !== 'scheduled' && requestedStatus !== 'sent') {
-      throw badRequest('status must be either scheduled or sent')
+    if (requestedStatus !== undefined && !['scheduled', 'sent', 'failed'].includes(String(requestedStatus))) {
+      throw badRequest('status must be scheduled, sent, or failed')
     }
     const page = positiveIntegerQuery(request.query.page, 1, 'page')
     const limit = positiveIntegerQuery(request.query.limit, 100, 'limit')
     if (limit > 100) throw badRequest('limit cannot exceed 100')
     if ((page - 1) * limit > 9_999) throw badRequest('Requested page is too far into the result set')
-    const status = requestedStatus === 'sent' ? 'SENT' as const : 'SCHEDULED' as const
+    const status = requestedStatus === 'sent'
+      ? 'SENT' as const
+      : requestedStatus === 'failed' ? 'FAILED' as const : 'SCHEDULED' as const
     const where = { userId, status }
     const [jobs, total] = await Promise.all([
       prisma.emailJob.findMany({
@@ -318,6 +351,14 @@ emailsRouter.post('/:id/retry', async (request, response, next) => {
     const id = validateEmailJobId(request.params.id)
     const job = await prisma.emailJob.findFirst({ where: { id, userId, status: 'FAILED' } })
     if (!job) throw notFound('Failed email job not found')
+    const latestFailure = await prisma.emailEvent.findFirst({
+      where: { emailJobId: job.id, type: 'FAILED' },
+      orderBy: { createdAt: 'desc' },
+      select: { message: true },
+    })
+    if (latestFailure?.message?.startsWith('Delivery outcome unknown;')) {
+      throw httpError(409, 'Delivery outcome is unknown. Check the SMTP provider before retrying to avoid sending a duplicate.')
+    }
     try {
       const queuedJob = await emailQueue.getJob(`email-${job.id}`)
       if (queuedJob) await queuedJob.remove()

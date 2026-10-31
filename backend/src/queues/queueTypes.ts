@@ -12,7 +12,7 @@ export interface EmailQueueJobData {
 }
 
 export interface EmailQueueJobResult {
-  outcome: 'sent' | 'missing' | 'cancelled' | 'already-sent' | 'already-processing' | 'not-claimed'
+  outcome: 'sent' | 'sent-status-persistence-failed' | 'missing' | 'cancelled' | 'already-sent' | 'already-processing' | 'not-claimed'
 }
 
 export interface EnqueuedEmailJob {

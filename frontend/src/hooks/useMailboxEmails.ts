@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getApiErrorMessage, getData, getEnvelope } from '../services/api'
 import { toMailboxEmail, type EmailJobRecord, type EmailSearchResponse, type MailboxEmail } from '../services/email'
 
-export type MailboxKind = 'scheduled' | 'sent'
+export type MailboxKind = 'scheduled' | 'sent' | 'failed'
 
 export function useMailboxEmails(kind: MailboxKind, search: string, refreshKey: number, statusFilter = '') {
   const [emails, setEmails] = useState<MailboxEmail[]>([])
@@ -65,7 +65,7 @@ export function useMailboxEmails(kind: MailboxKind, search: string, refreshKey: 
 
 async function loadMailboxEmails(kind: MailboxKind, query: string, page: number, statusFilter: string): Promise<{ emails: MailboxEmail[]; totalPages: number }> {
   const limit = 100
-  const status = kind === 'scheduled' ? 'SCHEDULED' : 'SENT'
+  const status = kind.toUpperCase()
   // Keep each mailbox scoped to its own state. A page level status selection
   // must never make sent/cancelled/failed records appear as active schedules.
   if (statusFilter && statusFilter !== 'ALL' && statusFilter !== status) {

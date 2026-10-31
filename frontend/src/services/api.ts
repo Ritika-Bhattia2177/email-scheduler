@@ -84,6 +84,7 @@ export function getApiErrorMessage(error: unknown): string {
 function toApiError(error: unknown): ApiError {
   if (isAxiosError<unknown>(error)) {
     const status = error.response?.status
+    const serverMessage = readServerMessage(error.response?.data)
     if (status === 401) {
       const message = import.meta.env.DEV
         ? 'Authentication failed. Check VITE_DEV_USER_ID or sign in again.'
@@ -91,11 +92,11 @@ function toApiError(error: unknown): ApiError {
       return new ApiError(message, status)
     }
     if (status === 403) return new ApiError('You do not have permission to perform this action.', status)
-    if (status === 429) return new ApiError('Too many requests. Please wait and try again.', status)
-    if (status === 503) return new ApiError('A required service is temporarily unavailable. Please try again.', status)
+    if (status === 429) return new ApiError(serverMessage ?? 'Too many requests. Please wait and try again.', status)
+    if (status === 502 && serverMessage) return new ApiError(serverMessage, status)
+    if (status === 503) return new ApiError(serverMessage ?? 'A required service is temporarily unavailable. Please try again.', status)
     if (status && status >= 500) return new ApiError('The backend could not complete the request. Please try again.', status)
-    const message = readServerMessage(error.response?.data)
-    if (message) return new ApiError(message, status)
+    if (serverMessage) return new ApiError(serverMessage, status)
     if (status === 404) return new ApiError('The requested record was not found.', status)
     if (!error.response) return new ApiError('Cannot reach the backend. Check that it is running and VITE_API_URL is correct.')
     return new ApiError('The request could not be completed.', status)
