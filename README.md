@@ -48,15 +48,15 @@ Set a valid PostgreSQL `DATABASE_URL`. Start PostgreSQL, Redis, and Elasticsearc
 
 For local SMTP, leave both `SMTP_USER` and `SMTP_PASSWORD` empty to use a generated Ethereal test account, or supply both values together. For Slack notifications, configure the Slack variables listed in [Environment variables](#environment-variables) and connect a workspace through the Slack OAuth routes.
 
-Generate the Prisma client and sync the schema:
+Generate the Prisma client and apply the checked-in migration:
 
 ```sh
 npm run prisma:generate
-npx prisma db push
+npm run prisma:migrate:deploy
 npm run dev
 ```
 
-The API defaults to port `5000`. The backend package also defines `npm run build` and `npm start`. Although a `prisma:migrate` script exists, this checkout has no migration files; local setup therefore uses `db push`.
+The API defaults to port `5000`. The backend package also defines `npm run build` and `npm start`. `npm start` applies pending migrations before launching the production server. Use `npm run prisma:migrate` only when creating a new development migration.
 
 ### 2. Local development identity
 
@@ -123,7 +123,7 @@ emailScheduler/
 └── SUBMISSION_CHECKLIST.md
 ```
 
-There is no checked-in `prisma/migrations` directory, Docker configuration, or dedicated automated test directory in this checkout.
+The Prisma migration history is in `backend/prisma/migrations`. There is no Docker configuration or dedicated automated test directory in this checkout.
 
 ## Security and limitations
 

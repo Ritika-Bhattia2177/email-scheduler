@@ -19,7 +19,7 @@ export function getRequestUserId(request: Request): string {
 }
 
 function unauthorized(): Error {
-    const error = new Error('A valid x-user-id header is required')
+    const error = new Error('Authentication required')
     Object.assign(error, { statusCode: 401 })
     return error
 }

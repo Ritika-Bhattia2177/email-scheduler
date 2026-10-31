@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "node --watch -r ts-node/register src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "npm run prisma:migrate:deploy && node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "reindex": "node -r ts-node/register src/utils/reindexEmails.ts",
     "queue:test": "node dist/utils/queueTest.js"
