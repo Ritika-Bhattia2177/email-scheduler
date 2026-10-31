@@ -20,11 +20,7 @@ export default function Header({ search, onSearchChange, onToggleSidebar, onRefr
       <select className="dashboard-status-filter" aria-label="Filter emails by status" value={statusFilter} onChange={event => onStatusFilterChange(event.target.value)}>
         <option value="">Default view</option>
         <option value="SCHEDULED">Scheduled</option>
-        <option value="PROCESSING">Processing</option>
         <option value="SENT">Sent</option>
-        <option value="FAILED">Failed</option>
-        <option value="CANCELLED">Cancelled</option>
-        <option value="ALL">All statuses</option>
       </select>
       <button className="dashboard-header-action" type="button" aria-label="Refresh emails" title="Refresh emails" onClick={onRefresh}><RefreshCw size={12} /></button>
     </header>

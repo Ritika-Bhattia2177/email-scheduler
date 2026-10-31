@@ -38,7 +38,8 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
     if (emailJob.idempotencyKey !== job.data.idempotencyKey) throw new Error(`Idempotency key mismatch for email job ${emailJob.id}`)
     if (emailJob.status === 'CANCELLED') return { outcome: 'cancelled' }
     if (emailJob.status === 'SENT') return { outcome: 'already-sent' }
-    if (emailJob.status !== 'SCHEDULED') {
+    const isImmediateSend = job.data.deliveryMode === 'send'
+    if (emailJob.status !== 'SCHEDULED' && emailJob.status !== 'PROCESSING') {
       console.warn(JSON.stringify({ level: 'warn', event: 'email_job_not_claimable', emailJobId: emailJob.id, status: emailJob.status }))
       return { outcome: 'already-processing' }
     }
@@ -55,8 +56,8 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
       const nextScheduledAt = new Date(rateLimit.retryAt)
       const rescheduled = await prisma.$transaction(async transaction => {
         const updated = await transaction.emailJob.updateMany({
-          where: { id: emailJob.id, status: 'SCHEDULED', scheduledAt: emailJob.scheduledAt },
-          data: { scheduledAt: nextScheduledAt },
+          where: { id: emailJob.id, status: { in: ['SCHEDULED', 'PROCESSING'] }, scheduledAt: emailJob.scheduledAt },
+          data: { status: isImmediateSend ? 'PROCESSING' : 'SCHEDULED', scheduledAt: nextScheduledAt },
         })
         if (updated.count === 0) return false
 
@@ -119,7 +120,10 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
     try {
       claimed = await prisma.$transaction(async transaction => {
         const updated = await transaction.emailJob.updateMany({
-          where: { id: emailJob.id, status: 'SCHEDULED' },
+          where: {
+            id: emailJob.id,
+            status: isImmediateSend ? { in: ['SCHEDULED', 'PROCESSING'] } : 'SCHEDULED',
+          },
           data: { status: 'PROCESSING' },
         })
         if (updated.count === 0) return false
@@ -230,7 +234,9 @@ async function recordDeliveryFailure(emailJobId: string, job: Job<EmailQueueJobD
   const message = safeErrorMessage(error)
 
   await prisma.$transaction(async transaction => {
-    const state = finalAttempt ? 'FAILED' as const : 'SCHEDULED' as const
+    const state = finalAttempt
+      ? 'FAILED' as const
+      : job.data.deliveryMode === 'send' ? 'PROCESSING' as const : 'SCHEDULED' as const
     const updated = await transaction.emailJob.updateMany({
       where: { id: emailJobId, status: 'PROCESSING' },
       data: { status: state },

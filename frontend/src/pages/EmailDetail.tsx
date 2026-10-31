@@ -1,6 +1,6 @@
 import { createElement, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom'
-import { Archive, ArrowLeft, CheckCircle2, CircleAlert, Clock3, Download, FileText, Image as ImageIcon, RotateCw, Star, Trash2, X } from 'lucide-react'
+import { Archive, ArrowLeft, CheckCircle2, CircleAlert, Clock3, Download, FileText, Image as ImageIcon, Star, Trash2, X } from 'lucide-react'
 import type { DashboardOutletContext } from '../components/layout/DashboardLayout'
 import { getApiErrorMessage, getBlob, getData, postData } from '../services/api'
 import { formatLocalDate, toEmailAttachments, type EmailEventRecord, type EmailJobRecord } from '../services/email'
@@ -15,7 +15,6 @@ export default function EmailDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [canceling, setCanceling] = useState(false)
-  const [retrying, setRetrying] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const pendingDetailRequestsRef = useRef(0)
 
@@ -92,22 +91,6 @@ export default function EmailDetail() {
     }
   }
 
-  async function retryFailedEmail() {
-    if (!email || email.status !== 'FAILED' || retrying) return
-    setRetrying(true)
-    setNotice('')
-    try {
-      const updatedEmail = await postData<EmailJobRecord>(`/emails/${encodeURIComponent(email.id)}/retry`)
-      setEmail(updatedEmail)
-      setNotice('Email scheduled for retry.')
-      refreshEmails()
-    } catch (reason) {
-      setNotice(getApiErrorMessage(reason))
-    } finally {
-      setRetrying(false)
-    }
-  }
-
   function chooseMoreAction(action: string) {
     setNotice(`${action} is not available yet.`)
   }
@@ -121,7 +104,6 @@ export default function EmailDetail() {
   const senderName = email.senderAccount.displayName || email.senderAccount.email
   const date = email.status === 'SENT' && email.sentAt ? formatLocalDate(email.sentAt) : formatLocalDate(email.scheduledAt)
   const attachments = toEmailAttachments(email.attachments)
-  const deliveryOutcomeUnknown = email.events?.some(event => event.type === 'FAILED' && event.message?.startsWith('Delivery outcome unknown;')) ?? false
 
   return (
     <article className="email-detail-page">
@@ -135,17 +117,14 @@ export default function EmailDetail() {
           <button className="detail-action" type="button" aria-label="Archive" onClick={() => chooseMoreAction('Archive')}><Archive size={14} /></button>
           {email.status === 'SCHEDULED'
             ? <button className="detail-action" type="button" aria-label="Cancel scheduled email" title="Cancel scheduled email" disabled={canceling} onClick={() => void cancelScheduledEmail()}><Trash2 size={14} /></button>
-            : email.status === 'FAILED'
-              ? <button className="detail-action" type="button" aria-label={retrying ? 'Retrying email' : 'Retry failed email'} title={deliveryOutcomeUnknown ? 'Check SMTP provider before retrying' : 'Retry failed email'} disabled={retrying || deliveryOutcomeUnknown} onClick={() => void retryFailedEmail()}><RotateCw size={14} /></button>
-              : <button className="detail-action" type="button" aria-label="Delete" onClick={() => chooseMoreAction('Delete')}><Trash2 size={14} /></button>}
+            : <button className="detail-action" type="button" aria-label="Delete" onClick={() => chooseMoreAction('Delete')}><Trash2 size={14} /></button>}
           <span className="detail-toolbar-divider" />
           <span className="detail-toolbar-avatar" aria-hidden="true">{initials(senderName)}</span>
         </div>
       </header>
 
-      {notice && <div className="detail-notice" role={notice === 'Scheduled email cancelled.' || notice === 'Email scheduled for retry.' ? 'status' : 'alert'}>{notice}<button type="button" onClick={() => setNotice('')} aria-label="Dismiss"><X size={13} /></button></div>}
+      {notice && <div className="detail-notice" role={notice === 'Scheduled email cancelled.' ? 'status' : 'alert'}>{notice}<button type="button" onClick={() => setNotice('')} aria-label="Dismiss"><X size={13} /></button></div>}
       {error && <div className="detail-notice" role="alert">{error}</div>}
-      {email.status === 'FAILED' && deliveryOutcomeUnknown && <div className="detail-notice" role="alert">Delivery outcome is unknown. Check your SMTP provider before retrying to avoid a duplicate email.</div>}
 
       <section className="detail-message" aria-label="Email message">
         <div className="detail-sender-row">
@@ -250,7 +229,7 @@ function safeEmailStyles(element: HTMLElement): CSSProperties {
 }
 
 function EmailHistory({ events }: { events?: EmailEventRecord[] }) {
-  const orderedEvents = events ? [...events].sort((left, right) => {
+  const orderedEvents = events ? events.filter(event => event.type !== 'FAILED').sort((left, right) => {
     const leftTime = new Date(left.createdAt).getTime()
     const rightTime = new Date(right.createdAt).getTime()
     return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0)
@@ -283,7 +262,7 @@ function HistoryEvent({ event, isLast }: { event: EmailEventRecord; isLast: bool
       <div className="detail-history-content">
         <div className="detail-history-heading"><strong>{eventTitle(event.type)}</strong><time dateTime={event.createdAt}>{timestamp}</time></div>
         <p>{eventDescription(event.type)}</p>
-        {details && <details className="detail-history-technical">
+        {details && event.type !== 'FAILED' && <details className="detail-history-technical">
           <summary>View technical details</summary>
           <pre>{details}</pre>
         </details>}

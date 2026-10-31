@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import Login from '../pages/Login'
 import DashboardLayout from '../components/layout/DashboardLayout'
 import ScheduledEmails from '../pages/ScheduledEmails'
 import SentEmails from '../pages/SentEmails'
-import FailedEmails from '../pages/FailedEmails'
 import EmailDetail from '../pages/EmailDetail'
 import ComposeEmail from '../pages/ComposeEmail'
 import SlackIntegration from '../pages/SlackIntegration'
@@ -20,17 +19,22 @@ export default function AppRoutes() {
           <Route index element={<Navigate to="scheduled" replace />} />
           <Route path="scheduled" element={<ScheduledEmails />} />
           <Route path="sent" element={<SentEmails />} />
-          <Route path="failed" element={<FailedEmails />} />
           <Route path="email/:id" element={<EmailDetail />} />
           <Route path="integrations/slack" element={<SlackIntegration />} />
         </Route>
         <Route path="/compose" element={<DashboardLayout />}>
-          <Route index element={<ComposeEmail />} />
+          <Route index element={<ComposeRoute />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   )
+}
+
+function ComposeRoute() {
+  const location = useLocation()
+  const newComposeId = (location.state as { newComposeId?: string } | null)?.newComposeId
+  return <ComposeEmail key={newComposeId ?? location.key} />
 }
 
 function RequireAuthentication() {

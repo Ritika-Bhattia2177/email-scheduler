@@ -186,7 +186,7 @@ export default function ComposeEmail() {
       return false
     }
     setScheduledAt(selectedDateTime.toISOString())
-    setFeedback({ type: 'success', message: `Scheduled for ${formatLocalDate(selectedDateTime.toISOString())}. Click Send Later to queue this email.` })
+    setFeedback({ type: 'success', message: `Scheduled for ${formatLocalDate(selectedDateTime.toISOString())}. Click Schedule to queue this email.` })
     return true
   }
 
@@ -275,10 +275,8 @@ export default function ComposeEmail() {
       setStartTime('')
       setScheduledAt(null)
       setAttachments([])
-      setFeedback({ type: 'success', message: `${mode === 'send' ? 'Email sent successfully' : 'Email scheduled successfully'}${attachments.length > 0 ? ' with attachments' : ''}.` })
+      setFeedback({ type: 'success', message: `${mode === 'send' ? 'Email queued for immediate delivery' : 'Email scheduled successfully'}${attachments.length > 0 ? ' with attachments' : ''}.` })
       refreshEmails()
-      if (mode === 'send') window.setTimeout(() => navigate('/dashboard/sent'), 800)
-      else window.setTimeout(() => navigate('/dashboard/scheduled'), 800)
     } catch (error) {
       setFeedback({ type: 'error', message: getApiErrorMessage(error) })
       refreshEmails()

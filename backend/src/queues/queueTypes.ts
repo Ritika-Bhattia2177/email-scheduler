@@ -1,6 +1,7 @@
 export interface EmailQueueJobData {
   emailJobId: string
   idempotencyKey: string
+  deliveryMode?: 'send' | 'schedule'
   senderAccountId: string
   senderEmail: string
   scheduledAt: string

@@ -3,7 +3,7 @@ import { enqueueEmailJob } from '../queues/emailQueue'
 import type { EmailQueueJobData, EnqueuedEmailJob } from '../queues/queueTypes'
 import { env } from '../config/env'
 
-export async function scheduleEmailJob(emailJobId: string): Promise<EnqueuedEmailJob> {
+export async function scheduleEmailJob(emailJobId: string, deliveryMode: 'send' | 'schedule' = 'schedule'): Promise<EnqueuedEmailJob> {
   const emailJob = await prisma.emailJob.findUnique({
     where: { id: emailJobId },
     include: {
@@ -18,6 +18,7 @@ export async function scheduleEmailJob(emailJobId: string): Promise<EnqueuedEmai
   const queueData: EmailQueueJobData = {
     emailJobId: emailJob.id,
     idempotencyKey: emailJob.idempotencyKey,
+    deliveryMode,
     senderAccountId: emailJob.senderAccountId,
     senderEmail: emailJob.senderAccount.email,
     scheduledAt: emailJob.scheduledAt.toISOString(),
@@ -30,6 +31,12 @@ export async function scheduleEmailJob(emailJobId: string): Promise<EnqueuedEmai
 
   const result = await enqueueEmailJob(queueData)
   try {
+    if (deliveryMode === 'send') return {
+      jobId: result.job.id ?? `email-${emailJob.id}`,
+      delay: result.delay,
+      alreadyEnqueued: result.alreadyEnqueued,
+    }
+
     const scheduledEvent = await prisma.emailEvent.findFirst({
       where: { emailJobId: emailJob.id, type: 'SCHEDULED' },
       select: { id: true },

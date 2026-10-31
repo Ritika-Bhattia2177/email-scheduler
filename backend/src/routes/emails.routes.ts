@@ -4,10 +4,8 @@ import { Prisma } from '../generated/prisma/client'
 import { prisma } from '../config/database'
 import { emailQueue } from '../queues/emailQueue'
 import { scheduleEmailJob } from '../services/emailSchedulerService'
-import { ImmediateEmailRateLimitError, ImmediateEmailStatusPersistenceError, sendEmailImmediately } from '../services/immediateEmailService'
 import { searchEmails, syncEmailSearchDocument } from '../services/emailSearchService'
 import { getRequestUserId } from '../utils/requestUser'
-import { redactSecrets } from '../utils/redactSecrets'
 import { env } from '../config/env'
 import {
   getUploadedAttachments,
@@ -111,7 +109,7 @@ emailsRouter.post('/', (request, _response, next) => {
           idempotencyKey: key,
           recipients: { create: uniqueRecipients.map(email => ({ email })) },
           ...(resolvedDeliveryMode === 'send' ? {
-            events: { create: { type: 'PROCESSING', message: 'Immediate SMTP delivery started.' } },
+            events: { create: { type: 'PROCESSING', message: 'Immediate email queued for delivery.' } },
           } : {}),
           ...(uploadedFiles.length > 0 ? {
             attachments: {
@@ -139,26 +137,7 @@ emailsRouter.post('/', (request, _response, next) => {
       return
     }
 
-    if (resolvedDeliveryMode === 'send') {
-      try {
-        await sendEmailImmediately(emailJob.id, sender.id, resolvedMinimumDelayMs, resolvedHourlyLimit)
-      } catch (error) {
-        const statusCode = error instanceof ImmediateEmailRateLimitError
-          ? error.statusCode
-          : error instanceof ImmediateEmailStatusPersistenceError ? error.statusCode : 502
-        const message = redactSecrets(error instanceof Error ? error.message : 'Email delivery failed')
-        response.status(statusCode).json({ success: false, message })
-        setImmediate(() => { void syncEmailSearchDocument(emailJob.id) })
-        return
-      }
-
-      const responseData = publicEmailJob(await emailJobResponse(emailJob.id))
-      response.status(201).json({ success: true, data: responseData })
-      setImmediate(() => { void syncEmailSearchDocument(emailJob.id) })
-      return
-    }
-
-    const queued = await scheduleEmailJobOrFail(emailJob.id)
+    const queued = await scheduleEmailJobOrFail(emailJob.id, resolvedDeliveryMode)
     const responseData = { ...publicEmailJob(await emailJobResponse(emailJob.id)), queue: queued }
     response.status(201).json({ success: true, data: responseData })
     // Search indexing is best-effort and is not required for persistence or
@@ -513,14 +492,14 @@ function httpError(statusCode: number, message: string): Error {
 
 export default emailsRouter
 
-async function scheduleEmailJobOrFail(emailJobId: string) {
+async function scheduleEmailJobOrFail(emailJobId: string, deliveryMode: 'send' | 'schedule' = 'schedule') {
   try {
-    return await scheduleEmailJob(emailJobId)
+    return await scheduleEmailJob(emailJobId, deliveryMode)
   } catch {
     let changedCount = 0
     try {
       const changed = await prisma.emailJob.updateMany({
-        where: { id: emailJobId, status: 'SCHEDULED' },
+        where: { id: emailJobId, status: { in: ['SCHEDULED', 'PROCESSING'] } },
         data: { status: 'FAILED' },
       })
       changedCount = changed.count
@@ -542,7 +521,7 @@ async function scheduleEmailJobOrFail(emailJobId: string) {
       await syncEmailSearchDocument(emailJobId)
     }
     await removeNonActiveQueueJob(emailJobId)
-    throw httpError(503, 'Email could not be scheduled because a required service is unavailable. Please retry.')
+    throw httpError(503, 'Email could not be queued because a required service is unavailable. Please retry.')
   }
 }
 
