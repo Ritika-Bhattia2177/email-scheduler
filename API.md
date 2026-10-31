@@ -177,6 +177,9 @@ Names below are read by `backend/src/config/env.ts` or Vite. Values are intentio
 | `SMTP_HOST` | Backend | Optional; `smtp.ethereal.email` | Configured SMTP host |
 | `SMTP_PORT` | Backend | Optional; `587` | SMTP port |
 | `SMTP_SECURE` | Backend | Optional; `false` | SMTP TLS mode |
+| `SMTP_CONNECTION_TIMEOUT_MS` | Backend | Optional; `30000` | Maximum time to establish the SMTP connection |
+| `SMTP_GREETING_TIMEOUT_MS` | Backend | Optional; `30000` | Maximum time to receive the SMTP greeting |
+| `SMTP_SOCKET_TIMEOUT_MS` | Backend | Optional; `60000` | Maximum idle SMTP socket time during authentication/submission |
 | `SMTP_USER` | Backend | Required in production; paired with password | SMTP username; if absent in development, Ethereal test credentials are generated |
 | `SMTP_PASSWORD` | Backend | Required in production; paired with user | SMTP password |
 | `SMTP_FROM` | Backend | Optional | Optional From header override |

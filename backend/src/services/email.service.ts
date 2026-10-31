@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import type { SentMessageInfo, Transporter } from 'nodemailer'
 import { env } from '../config/env'
+import { redactSecrets } from '../utils/redactSecrets'
 
 export interface EmailAttachmentInput {
   filename: string
@@ -9,6 +10,7 @@ export interface EmailAttachmentInput {
 }
 
 export interface SendEmailInput {
+  emailJobId?: string
   senderEmail: string
   senderName: string
   recipients: string[]
@@ -38,11 +40,12 @@ let transporterPromise: Promise<Transporter<SentMessageInfo>> | undefined
 let etherealTransporter = false
 
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
-  const transporter = await getTransporter()
-  const from = env.SMTP_FROM ?? `${input.senderName} <${input.senderEmail}>`
   let info: SentMessageInfo
-
+  const startedAt = Date.now()
   try {
+    const transporter = await getTransporter()
+    const from = env.SMTP_FROM ?? `${input.senderName} <${input.senderEmail}>`
+    console.info(JSON.stringify({ level: 'info', event: 'email_smtp_submission_started', emailJobId: input.emailJobId, elapsedMs: 0 }))
     info = await transporter.sendMail({
       from,
       to: input.recipients,
@@ -51,11 +54,21 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       html: input.html,
       attachments: input.attachments,
     })
+    console.info(JSON.stringify({ level: 'info', event: 'email_smtp_submission_succeeded', emailJobId: input.emailJobId, elapsedMs: Date.now() - startedAt }))
 
   } catch (error) {
+    console.warn(JSON.stringify({
+      level: 'warn',
+      event: 'email_smtp_send_failed',
+      emailJobId: input.emailJobId,
+      stage: 'connection_or_submission',
+      elapsedMs: Date.now() - startedAt,
+      message: redactSecrets(errorMessage(error)),
+      retryable: isTransientSmtpError(error),
+    }))
     throw new EmailDeliveryError(
       errorMessage(error),
-      isSafeToRetrySmtpRejection(error),
+      isSafeToRetrySmtpRejection(error) || isTransientSmtpError(error),
       { cause: error },
       isSmtpAcceptanceUncertain(error),
     )
@@ -89,12 +102,26 @@ async function createTransporter(): Promise<Transporter<SentMessageInfo>> {
 
   if (hasUser && env.SMTP_USER && env.SMTP_PASSWORD) {
     etherealTransporter = false
-    return nodemailer.createTransport({
+    const transporter = nodemailer.createTransport({
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,
       secure: env.SMTP_SECURE,
       auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
+      connectionTimeout: env.SMTP_CONNECTION_TIMEOUT_MS,
+      greetingTimeout: env.SMTP_GREETING_TIMEOUT_MS,
+      socketTimeout: env.SMTP_SOCKET_TIMEOUT_MS,
     })
+    console.info(JSON.stringify({
+      level: 'info',
+      event: 'email_smtp_connection_configured',
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      secure: env.SMTP_SECURE,
+      connectionTimeoutMs: env.SMTP_CONNECTION_TIMEOUT_MS,
+      greetingTimeoutMs: env.SMTP_GREETING_TIMEOUT_MS,
+      socketTimeoutMs: env.SMTP_SOCKET_TIMEOUT_MS,
+    }))
+    return verifyTransporter(transporter)
   }
 
   if (env.NODE_ENV === 'production') {
@@ -104,14 +131,47 @@ async function createTransporter(): Promise<Transporter<SentMessageInfo>> {
   try {
     const account = await nodemailer.createTestAccount()
     etherealTransporter = true
-    return nodemailer.createTransport({
+    const transporter = nodemailer.createTransport({
       host: 'smtp.ethereal.email',
       port: 587,
       secure: false,
       auth: { user: account.user, pass: account.pass },
+      connectionTimeout: env.SMTP_CONNECTION_TIMEOUT_MS,
+      greetingTimeout: env.SMTP_GREETING_TIMEOUT_MS,
+      socketTimeout: env.SMTP_SOCKET_TIMEOUT_MS,
     })
+    return verifyTransporter(transporter)
   } catch (error) {
     throw new EmailDeliveryError(`Unable to create Ethereal test account: ${errorMessage(error)}`, true, { cause: error })
+  }
+
+  async function verifyTransporter(transporter: Transporter<SentMessageInfo>): Promise<Transporter<SentMessageInfo>> {
+    const startedAt = Date.now()
+    console.info(JSON.stringify({
+      level: 'info',
+      event: 'email_smtp_connection_started',
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      secure: env.SMTP_SECURE,
+    }))
+    try {
+      await transporter.verify()
+      console.info(JSON.stringify({
+        level: 'info',
+        event: 'email_smtp_connection_succeeded',
+        elapsedMs: Date.now() - startedAt,
+      }))
+      return transporter
+    } catch (error) {
+      console.warn(JSON.stringify({
+        level: 'warn',
+        event: 'email_smtp_connection_failed',
+        elapsedMs: Date.now() - startedAt,
+        message: redactSecrets(errorMessage(error)),
+        code: smtpErrorCode(error),
+      }))
+      throw error
+    }
   }
 }
 
@@ -131,6 +191,20 @@ function htmlToText(html: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown email delivery error'
+}
+
+function isTransientSmtpError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : ''
+  const message = errorMessage(error).toLowerCase()
+  return ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'ESOCKET'].includes(code)
+    || message.includes('connection timeout')
+    || message.includes('socket timeout')
+}
+
+function smtpErrorCode(error: unknown): string {
+  if (typeof error !== 'object' || error === null || !('code' in error) || typeof error.code !== 'string') return 'UNKNOWN'
+  return error.code
 }
 
 function isSafeToRetrySmtpRejection(error: unknown): boolean {

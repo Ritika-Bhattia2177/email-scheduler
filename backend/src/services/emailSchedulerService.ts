@@ -30,6 +30,18 @@ export async function scheduleEmailJob(emailJobId: string, deliveryMode: 'send' 
   }
 
   const result = await enqueueEmailJob(queueData)
+  console.info(JSON.stringify({
+    level: 'info',
+    event: 'email_job_enqueued',
+    emailJobId: emailJob.id,
+    deliveryMode,
+    status: emailJob.status,
+    scheduledAt: queueData.scheduledAt,
+    delay: result.delay,
+    minimumDelayMs: queueData.minimumDelayMs,
+    hourlyLimit: queueData.hourlyLimit,
+    alreadyEnqueued: result.alreadyEnqueued,
+  }))
   try {
     if (deliveryMode === 'send') return {
       jobId: result.job.id ?? `email-${emailJob.id}`,

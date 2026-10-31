@@ -19,6 +19,7 @@ export async function deliverEmailJob(emailJobId: string): Promise<Awaited<Retur
   }))
 
   return sendEmail({
+    emailJobId: emailJob.id,
     senderEmail: emailJob.senderAccount.email,
     senderName: emailJob.senderAccount.displayName,
     recipients: emailJob.recipients.map(recipient => recipient.email),

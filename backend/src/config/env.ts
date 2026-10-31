@@ -115,6 +115,9 @@ export interface Environment {
   SMTP_HOST: string
   SMTP_PORT: number
   SMTP_SECURE: boolean
+  SMTP_CONNECTION_TIMEOUT_MS: number
+  SMTP_GREETING_TIMEOUT_MS: number
+  SMTP_SOCKET_TIMEOUT_MS: number
   SMTP_USER?: string
   SMTP_PASSWORD?: string
   SMTP_FROM?: string
@@ -157,6 +160,9 @@ export const env: Environment = {
   SMTP_HOST: optionalString('SMTP_HOST') ?? 'smtp.ethereal.email',
   SMTP_PORT: integer('SMTP_PORT', 587, 65535),
   SMTP_SECURE: boolean('SMTP_SECURE', false),
+  SMTP_CONNECTION_TIMEOUT_MS: integer('SMTP_CONNECTION_TIMEOUT_MS', 30_000),
+  SMTP_GREETING_TIMEOUT_MS: integer('SMTP_GREETING_TIMEOUT_MS', 30_000),
+  SMTP_SOCKET_TIMEOUT_MS: integer('SMTP_SOCKET_TIMEOUT_MS', 60_000),
   SMTP_USER: optionalString('SMTP_USER'),
   SMTP_PASSWORD: optionalString('SMTP_PASSWORD'),
   SMTP_FROM: optionalString('SMTP_FROM'),

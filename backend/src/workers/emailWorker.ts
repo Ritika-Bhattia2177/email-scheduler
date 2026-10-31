@@ -14,7 +14,19 @@ import { redactSecrets } from '../utils/redactSecrets'
 export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
   EMAIL_QUEUE_NAME,
   async (job, token) => {
-    console.info(JSON.stringify({ level: 'info', event: 'email_job_picked_up', queueJobId: job.id, emailJobId: job.data.emailJobId }))
+    const pickedUpAt = Date.now()
+    console.info(JSON.stringify({
+      level: 'info',
+      event: 'email_job_picked_up',
+      queueJobId: job.id,
+      emailJobId: job.data.emailJobId,
+      deliveryMode: job.data.deliveryMode ?? 'schedule',
+      scheduledAt: job.data.scheduledAt,
+      now: new Date(pickedUpAt).toISOString(),
+      delay: Math.max(0, Date.parse(job.data.scheduledAt) - pickedUpAt),
+      minimumDelayMs: job.data.minimumDelayMs ?? env.EMAIL_DELAY_MS,
+      hourlyLimit: job.data.hourlyLimit ?? env.MAX_EMAILS_PER_SENDER_PER_HOUR,
+    }))
 
     const emailJob = await prisma.emailJob.findUnique({
       where: { id: job.data.emailJobId },
@@ -45,6 +57,16 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
     }
 
     if (emailJob.scheduledAt.getTime() > Date.now()) {
+      console.info(JSON.stringify({
+        level: 'info',
+        event: 'email_job_not_due',
+        emailJobId: emailJob.id,
+        deliveryMode: job.data.deliveryMode ?? 'schedule',
+        status: emailJob.status,
+        scheduledAt: emailJob.scheduledAt.toISOString(),
+        now: new Date().toISOString(),
+        delay: Math.max(0, emailJob.scheduledAt.getTime() - Date.now()),
+      }))
       await job.moveToDelayed(emailJob.scheduledAt.getTime(), token)
       throw new DelayedError()
     }
@@ -159,7 +181,13 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
             event: 'email_rate_limit_reservation_lease_missing',
             emailJobId: emailJob.id,
           }))
+          return
         }
+        console.info(JSON.stringify({
+          level: 'info',
+          event: 'email_rate_limit_reservation_lease_refreshed',
+          emailJobId: emailJob.id,
+        }))
       }).catch(error => {
         console.warn(JSON.stringify({
           level: 'warn',
@@ -173,6 +201,14 @@ export const emailWorker = new Worker<EmailQueueJobData, EmailQueueJobResult>(
       delivery = await deliverEmailJob(emailJob.id)
     } catch (error) {
       clearInterval(reservationHeartbeat)
+      if (isSmtpTimeout(error)) {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          event: 'email_delivery_timed_out',
+          emailJobId: emailJob.id,
+          message: safeErrorMessage(error),
+        }))
+      }
       await safelyReleaseReservation(rateLimit.reservationId!, emailJob.senderAccountId, emailJob.id)
       await recordDeliveryFailure(emailJob.id, job, error)
       throw error
@@ -308,6 +344,11 @@ function safeErrorMessage(error: unknown): string {
   return redactSecrets(message)
 }
 
+function isSmtpTimeout(error: unknown): boolean {
+  const message = safeErrorMessage(error).toLowerCase()
+  return message.includes('timeout') || message.includes('timed out')
+}
+
 function failureEventMessage(error: unknown, message: string): string {
   return error instanceof EmailDeliveryError && error.deliveryUncertain
     ? `Delivery outcome unknown; check the SMTP provider before retrying. ${message}`
@@ -336,6 +377,12 @@ async function persistSentStatus(emailJobId: string, messageId?: string | false)
           },
         })
       })
+      console.info(JSON.stringify({
+        level: 'info',
+        event: 'email_status_updated',
+        emailJobId,
+        status: 'SENT',
+      }))
       return
     } catch (error) {
       lastError = error
