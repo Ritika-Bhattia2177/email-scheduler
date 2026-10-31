@@ -65,12 +65,12 @@ export function oauthStateCookieHeader(state: string): string {
     'SameSite=Lax',
     `Max-Age=${GOOGLE_STATE_TTL_SECONDS}`,
   ]
-  if (env.NODE_ENV === 'production') attributes.push('Secure')
+  if (usesSecureCookies()) attributes.push('Secure')
   return attributes.join('; ')
 }
 
 export function expiredOAuthStateCookieHeader(): string {
-  return `${OAUTH_STATE_COOKIE_NAME}=; Path=/api/auth/google; HttpOnly; SameSite=Lax; Max-Age=0${env.NODE_ENV === 'production' ? '; Secure' : ''}`
+  return `${OAUTH_STATE_COOKIE_NAME}=; Path=/api/auth/google; HttpOnly; SameSite=Lax; Max-Age=0${usesSecureCookies() ? '; Secure' : ''}`
 }
 
 export function requestHasMatchingOAuthState(cookieHeader: string | undefined, state: string): boolean {
@@ -221,15 +221,19 @@ export function sessionCookieHeader(token: string): string {
     `${SESSION_COOKIE_NAME}=${token}`,
     'Path=/',
     'HttpOnly',
-    'SameSite=Lax',
+    `SameSite=${usesSecureCookies() ? 'None' : 'Lax'}`,
     `Max-Age=${SESSION_TTL_SECONDS}`,
   ]
-  if (env.NODE_ENV === 'production') attributes.push('Secure')
+  if (usesSecureCookies()) attributes.push('Secure')
   return attributes.join('; ')
 }
 
 export function expiredSessionCookieHeader(): string {
-  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${env.NODE_ENV === 'production' ? '; Secure' : ''}`
+  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=${usesSecureCookies() ? 'None' : 'Lax'}; Max-Age=0${usesSecureCookies() ? '; Secure' : ''}`
+}
+
+function usesSecureCookies(): boolean {
+  return env.NODE_ENV === 'production' || /^https:\/\//i.test(env.GOOGLE_REDIRECT_URI)
 }
 
 export function getSessionUserId(cookieHeader: string | undefined): string | null {

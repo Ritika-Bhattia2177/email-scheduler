@@ -1,7 +1,7 @@
 import axios, { isAxiosError } from 'axios'
 
 const configuredBaseUrl = import.meta.env.PROD
-  ? '/api'
+  ? import.meta.env.VITE_API_URL?.trim() || 'https://email-scheduler-backend-7x2p.onrender.com/api'
   : import.meta.env.VITE_API_URL?.trim() || 'http://localhost:5000/api'
 
 export const api = axios.create({

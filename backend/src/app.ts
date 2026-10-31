@@ -14,6 +14,8 @@ import { env } from './config/env'
 
 const app = express()
 
+app.set('trust proxy', 1)
+
 const allowedOrigins = new Set(env.CORS_ALLOWED_ORIGINS)
 
 app.disable('x-powered-by')
