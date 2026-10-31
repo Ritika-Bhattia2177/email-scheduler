@@ -202,7 +202,11 @@ export async function sendSlackMessage(userId: string, text: string): Promise<vo
 
   const payload: unknown = await response.json().catch(() => null)
   if (!response.ok || !isRecord(payload) || payload.ok !== true) {
-    throw new SlackServiceError('Slack rejected the notification', 502)
+    const slackError = getSafeSlackError(payload)
+    throw new SlackServiceError(
+      slackError ? `Slack rejected the notification: ${slackError}` : 'Slack rejected the notification',
+      502,
+    )
   }
 }
 
@@ -234,10 +238,30 @@ export async function notifyRateLimit(notification: RateLimitSlackNotification):
       ].join('\n')
       await sendSlackMessage(notification.userId, message)
       console.info(JSON.stringify({ level: 'info', event: 'slack_rate_limit_notification_sent', userId: notification.userId, limitType }))
-    } catch {
-      console.warn(JSON.stringify({ level: 'warn', event: 'slack_rate_limit_notification_failed', userId: notification.userId, limitType }))
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Unknown error'
+      console.warn(JSON.stringify({
+        level: 'warn',
+        event: 'slack_rate_limit_notification_failed',
+        userId: notification.userId,
+        limitType,
+        reason: redactCredentials(reason),
+      }))
     }
   }
+}
+
+function getSafeSlackError(payload: unknown): string | undefined {
+  if (!isRecord(payload) || typeof payload.error !== 'string') return undefined
+  // Slack API rejection reasons are short machine-readable codes. Restricting the
+  // value to this format prevents arbitrary response text or credentials being logged.
+  return /^[a-z][a-z0-9_]{0,63}$/i.test(payload.error) ? payload.error : undefined
+}
+
+function redactCredentials(message: string): string {
+  return message
+    .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [REDACTED]')
+    .replace(/\b(access[_-]?token|client[_-]?secret|encryption[_-]?key|oauth[_-]?(?:token|credential|secret))\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
 }
 
 function normalizedScopes(): string {
